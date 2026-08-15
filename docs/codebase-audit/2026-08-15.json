@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "skill": "codebase-audit",
+  "date": "2026-08-15",
+  "root": "/Users/batuhanyuksel/Documents/udemy",
+  "verdict": "CONCERNS",
+  "runtime": "static",
+  "findings": [
+    {"id": "CA-001", "severity": "Major", "category": "Security architecture", "path": "src/content/index.ts:68"},
+    {"id": "CA-002", "severity": "Major", "category": "Functional correctness", "path": "src/content/overlay/uiRenderer.ts:22"},
+    {"id": "CA-003", "severity": "Minor", "category": "Completeness", "path": "inventory profile.test_kinds"},
+    {"id": "CA-004", "severity": "Minor", "category": "Maintainability", "path": "generate-icons.js"},
+    {"id": "CA-005", "severity": "Minor", "category": "Security architecture", "path": "src/popup/sendToTab.ts:3"},
+    {"id": "CA-006", "severity": "Info", "category": "Completeness", "path": "runtime-check.py"},
+    {"id": "CA-007", "severity": "Info", "category": "Maintainability", "path": "src/types/index.ts"},
+    {"id": "CA-008", "severity": "Info", "category": "Security architecture", "path": "src/services/translator/freeTranslate.ts"}
+  ]
+}

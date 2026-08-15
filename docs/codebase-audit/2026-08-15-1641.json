@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "skill": "codebase-audit",
+  "date": "2026-08-15",
+  "root": "/Users/batuhanyuksel/Documents/udemy",
+  "verdict": "CONCERNS",
+  "runtime": "static",
+  "findings": [
+    {"id": "CA-001", "severity": "Major", "category": "Maintainability", "path": "src/popup/components/SubtitlesTab.tsx"},
+    {"id": "CA-002", "severity": "Major", "category": "Reliability", "path": "src/content/overlay/videoDock.ts"},
+    {"id": "CA-003", "severity": "Major", "category": "Reliability", "path": "src/background/index.ts"},
+    {"id": "CA-004", "severity": "Minor", "category": "Maintainability", "path": "src/services/storage.ts"},
+    {"id": "CA-005", "severity": "Minor", "category": "Completeness", "path": "inventory profile.test_kinds"},
+    {"id": "CA-006", "severity": "Minor", "category": "Maintainability", "path": "src/content/overlay/uiRenderer.ts"},
+    {"id": "CA-007", "severity": "Info", "category": "Completeness", "path": "runtime-check.py"},
+    {"id": "CA-008", "severity": "Info", "category": "Completeness", "path": "inventory complete_todo_list"}
+  ]
+}

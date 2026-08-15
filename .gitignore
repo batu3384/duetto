@@ -1,0 +1,9 @@
+node_modules
+dist
+.env
+.env.*
+*.pem
+.DS_Store
+.cursor
+*.log
+Thumbs.db

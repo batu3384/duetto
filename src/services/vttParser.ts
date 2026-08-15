@@ -1,0 +1,270 @@
+import type { SubtitleCue } from '../types/index.ts';
+
+/**
+ * Checks if a text string is real spoken dialogue and not thumbnail sprite coordinates.
+ */
+export function isRealSubtitleText(text: string): boolean {
+  if (!text || text.length < 1) return false;
+  // Reject image sprite coordinates like "thumb-sprites.jpg#xywh=480,270,160,90"
+  if (/\.jpe?g|\.png|\.webp|xywh=|#xywh|thumb-sprites|storyboard/i.test(text)) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Converts WebVTT time format (00:01:23.450 or 01:23.450) to seconds.
+ */
+export function vttTimeToSeconds(timeStr: string): number {
+  const parts = timeStr.trim().split(':');
+  let hours = 0;
+  let minutes = 0;
+  let secondsWithMs = 0;
+
+  if (parts.length === 3) {
+    hours = parseFloat(parts[0]);
+    minutes = parseFloat(parts[1]);
+    secondsWithMs = parseFloat(parts[2].replace(',', '.'));
+  } else if (parts.length === 2) {
+    minutes = parseFloat(parts[0]);
+    secondsWithMs = parseFloat(parts[1].replace(',', '.'));
+  } else {
+    secondsWithMs = parseFloat(parts[0]);
+  }
+
+  return hours * 3600 + minutes * 60 + secondsWithMs;
+}
+
+/**
+ * Cleans formatting tags from WebVTT cues (e.g. <i>, <b>, <v Voice>, <c.color>, timestamps).
+ */
+export function cleanVttText(rawText: string): string {
+  return rawText
+    .replace(/<[^>]+>/g, '') // remove HTML/VTT tags
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .trim();
+}
+
+/**
+ * Parses raw WebVTT text into an array of SubtitleCue objects, strictly ignoring image sprites.
+ */
+export function parseVTT(vttContent: string): SubtitleCue[] {
+  const lines = vttContent.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  const cues: SubtitleCue[] = [];
+
+  let i = 0;
+  // Skip WEBVTT header
+  while (i < lines.length && !lines[i].includes('-->')) {
+    i++;
+  }
+
+  while (i < lines.length) {
+    const line = lines[i].trim();
+
+    if (line.includes('-->')) {
+      const timeParts = line.split('-->');
+      const startStr = timeParts[0].trim().split(' ')[0];
+      const endStr = timeParts[1].trim().split(' ')[0];
+
+      const startTime = vttTimeToSeconds(startStr);
+      const endTime = vttTimeToSeconds(endStr);
+
+      i++;
+      const textLines: string[] = [];
+      while (i < lines.length && lines[i].trim() !== '' && !lines[i].includes('-->')) {
+        textLines.push(lines[i].trim());
+        i++;
+      }
+
+      const text = cleanVttText(textLines.join(' '));
+      if (text && isRealSubtitleText(text)) {
+        cues.push({
+          id: `cue-${cues.length}`,
+          startTime,
+          endTime,
+          text,
+        });
+      }
+    } else {
+      i++;
+    }
+  }
+
+  return cues;
+}
+
+/**
+ * Groups consecutive cues into logical semantic batches with a separator for batch translation with full context.
+ */
+export interface CueBatch {
+  cues: SubtitleCue[];
+  combinedText: string;
+}
+
+export function groupCuesForBatchTranslation(cues: SubtitleCue[], maxTokensOrCues: number = 12): CueBatch[] {
+  const batches: CueBatch[] = [];
+  let currentBatchCues: SubtitleCue[] = [];
+
+  for (const cue of cues) {
+    currentBatchCues.push(cue);
+    if (currentBatchCues.length >= maxTokensOrCues) {
+      batches.push(makeBatch(currentBatchCues));
+      currentBatchCues = [];
+    }
+  }
+
+  if (currentBatchCues.length > 0) batches.push(makeBatch(currentBatchCues));
+  return batches;
+}
+
+function makeBatch(cues: SubtitleCue[]): CueBatch {
+  return {
+    cues,
+    combinedText: cues.map((c) => `[${c.id}] ${c.text}`).join('\n'),
+  };
+}
+
+export function cueIndexAtTime(cues: SubtitleCue[], aroundTime: number): number {
+  if (!cues.length) return -1;
+  let i = cues.findIndex((c) => aroundTime >= c.startTime && aroundTime <= c.endTime);
+  if (i < 0) i = cues.findIndex((c) => c.startTime >= aroundTime);
+  return i < 0 ? 0 : i;
+}
+
+/** On-screen cue plus a few ahead so playback does not wait on the rest of the lecture. */
+export function liveWindowCues(
+  cues: SubtitleCue[],
+  aroundTime: number,
+  ahead = 12,
+  behind = 1
+): SubtitleCue[] {
+  if (!cues.length) return [];
+  const i = cueIndexAtTime(cues, aroundTime);
+  const from = Math.max(0, i - behind);
+  return cues.slice(from, i + ahead);
+}
+
+/** Current cue + next few first so the on-screen line translates immediately. */
+export function orderCuesForLiveTranslation(cues: SubtitleCue[], aroundTime: number): SubtitleCue[] {
+  if (!cues.length) return cues;
+  const i = cueIndexAtTime(cues, aroundTime);
+  const liveEnd = Math.min(cues.length, i + 12);
+  return [...cues.slice(i, liveEnd), ...cues.slice(0, i), ...cues.slice(liveEnd)];
+}
+
+export function groupCuesForLiveTranslation(
+  cues: SubtitleCue[],
+  aroundTime: number,
+  liveSize = 12,
+  batchSize = 12
+): CueBatch[] {
+  if (!cues.length) return [];
+  const i = cueIndexAtTime(cues, aroundTime);
+  const live = cues.slice(i, i + liveSize);
+  const liveIds = new Set(live.map((c) => c.id));
+  const rest = cues.filter((c) => !liveIds.has(c.id));
+  const batches: CueBatch[] = [];
+  if (live.length) batches.push(makeBatch(live));
+  batches.push(...groupCuesForBatchTranslation(rest, batchSize));
+  return batches;
+}
+
+export function stripGeminiFences(raw: string): string {
+  return raw.replace(/^```[\w]*\s*/i, '').replace(/\s*```$/i, '').trim();
+}
+
+/** Map `[cue-id] text`. Unlabeled lines append to the last id. No positional fallback. */
+export function parseLabeledCueLines(raw: string, allowedIds: Set<string>): Map<string, string> {
+  const map = new Map<string, string>();
+  const cleaned = stripGeminiFences(raw);
+  let lastId: string | null = null;
+  for (const line of cleaned.split('\n')) {
+    const t = line.trim();
+    if (!t) continue;
+    const match = t.match(/^\[([^\]]+)\]\s*(.*)$/);
+    if (match) {
+      const id = match[1].trim();
+      const text = match[2].replace(/^[:.\-–]\s*/, '').trim();
+      if (!allowedIds.has(id) || !text) continue;
+      map.set(id, text);
+      lastId = id;
+      continue;
+    }
+    if (lastId && map.has(lastId)) {
+      map.set(lastId, `${map.get(lastId)} ${t}`);
+    }
+  }
+  return map;
+}
+
+/** `[n] text` as index into this batch only. No unlabeled positional fallback. */
+export function parseStrictIndexLines(raw: string, expected: number): Map<number, string> {
+  const map = new Map<number, string>();
+  if (expected <= 0) return map;
+  const cleaned = stripGeminiFences(raw);
+  for (const line of cleaned.split('\n')) {
+    const match = line.trim().match(/^\[(\d+)\]\s*(.*)$/);
+    if (!match) continue;
+    const i = parseInt(match[1], 10);
+    const text = match[2].replace(/^[:.\-–]\s*/, '').trim();
+    if (i >= 0 && i < expected && text) map.set(i, text);
+  }
+  return map;
+}
+
+export function parseBatchTranslation(raw: string, batchCues: SubtitleCue[]): Map<string, string> {
+  const allowed = new Set(batchCues.map((c) => c.id));
+  const labeled = parseLabeledCueLines(raw, allowed);
+  const map = new Map(labeled);
+  if (map.size === batchCues.length) return map;
+  const indexed = parseStrictIndexLines(raw, batchCues.length);
+  batchCues.forEach((cue, i) => {
+    const text = indexed.get(i);
+    if (!map.has(cue.id) && text) map.set(cue.id, text);
+  });
+  return map;
+}
+
+export function cueAtTime(cues: SubtitleCue[], currentTime: number): SubtitleCue | null {
+  let best: SubtitleCue | null = null;
+  for (const c of cues) {
+    if (currentTime >= c.startTime && currentTime <= c.endTime) {
+      if (!best || c.startTime >= best.startTime) best = c;
+    }
+  }
+  return best;
+}
+
+export function cueTranslationCoverage(cues: SubtitleCue[]): number {
+  if (!cues.length) return 0;
+  let n = 0;
+  for (const c of cues) {
+    if (typeof c.translation === 'string' && c.translation.length > 0) n += 1;
+  }
+  return n / cues.length;
+}
+
+export function trackMatchesSource(language: string, label: string, sourceLang: string): boolean {
+  const lang = (language || '').toLowerCase();
+  const lab = (label || '').toLowerCase();
+  const src = (sourceLang || 'en').toLowerCase();
+  if (lang.startsWith(src)) return true;
+  if (src === 'en') return /\benglish\b|ingiliz/.test(lab);
+  if (src === 'tr') return /t[uü]rk|turkish/.test(lab);
+  if (src === 'de') return /deutsch|german|almanca/.test(lab);
+  if (src === 'es') return /spanish|espa[nñ]ol/.test(lab);
+  if (src === 'fr') return /french|fran[cç]ais/.test(lab);
+  if (src === 'pt') return /portuguese|portugu/.test(lab);
+  if (src === 'it') return /italian|italiano/.test(lab);
+  if (src === 'ja') return /japanese|日本語|japon/.test(lab);
+  if (src === 'ko') return /korean|한국어|kore/.test(lab);
+  if (src === 'zh') return /chinese|中文|çin/.test(lab);
+  if (src === 'ar') return /arabic|عربي|arap/.test(lab);
+  if (src === 'ru') return /russian|русск|rusça/.test(lab);
+  return lab.includes(src);
+}

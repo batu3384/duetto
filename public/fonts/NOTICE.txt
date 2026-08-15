@@ -1,0 +1,4 @@
+Bundled caption fonts (SIL Open Font License 1.1):
+- Atkinson Hyperlegible — Braille Institute
+- Noto Sans — Google
+Source: jsdelivr fontsource fonts @5.2.8 (latin + latin-ext, 400/700).
