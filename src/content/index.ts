@@ -3,7 +3,7 @@ import { subtitleManager } from './subtitleManager';
 import { shadowOverlay } from './overlay/shadowRoot';
 import { uiRenderer } from './overlay/uiRenderer';
 import { setupKeyboardShortcuts } from './shortcuts';
-import { applySettingsCache, getPageSettings, mergeSettings, SECRET_KEY, SETTINGS_KEY, settingsForPage } from '../services/storage';
+import { applySettingsCache, extensionAlive, getPageSettings, isStaleExtensionError, mergeSettings, SECRET_KEY, SETTINGS_KEY, settingsForPage } from '../services/storage';
 import { consumePendingSeek, setPendingSeek } from '../services/db';
 import { ExtensionSettings } from '../types';
 import { applyVideoDock, clearVideoDock, watchVideoDock } from './overlay/videoDock';
@@ -11,6 +11,7 @@ import { applyVideoDock, clearVideoDock, watchVideoDock } from './overlay/videoD
 console.log('[Duetto] Content script initialized on Udemy.');
 
 const HOST_ID = 'duetto-overlay-host';
+const STALE_BANNER_ID = 'duetto-stale-banner';
 
 let isInitialized = false;
 let cleanupShortcuts: (() => void) | null = null;
@@ -23,6 +24,36 @@ let urlPoll: ReturnType<typeof setInterval> | null = null;
 let lastLectureKey = '';
 let attaching = false;
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
+let staleStopped = false;
+
+function showStaleExtensionBanner(): void {
+  if (document.getElementById(STALE_BANNER_ID)) return;
+  const el = document.createElement('div');
+  el.id = STALE_BANNER_ID;
+  el.setAttribute('role', 'status');
+  el.textContent = 'Duetto güncellendi — uzantının çalışması için bu sayfayı yenileyin (F5).';
+  el.style.cssText =
+    'position:fixed;left:12px;right:12px;bottom:12px;z-index:2147483646;padding:10px 14px;border-radius:10px;border:1px solid #2c3546;background:rgba(14,20,36,0.96);color:#e8ebf2;font:600 12px/1.4 system-ui,sans-serif;box-shadow:0 8px 24px rgba(12,16,24,0.55);pointer-events:none';
+  document.body.appendChild(el);
+}
+
+function stopObserversOnStale(): void {
+  if (staleStopped) return;
+  staleStopped = true;
+  if (urlPoll) clearInterval(urlPoll);
+  urlPoll = null;
+  playerObserver?.disconnect();
+  playerObserver = null;
+  if (checkTimer) clearTimeout(checkTimer);
+  checkTimer = null;
+}
+
+function guardStaleExtension(): boolean {
+  if (extensionAlive()) return false;
+  showStaleExtensionBanner();
+  stopObserversOnStale();
+  return true;
+}
 
 function lectureKeyFromUrl(): string {
   const match = window.location.pathname.match(/\/lecture\/(\d+)/);
@@ -94,12 +125,29 @@ function teardownPlayer() {
 }
 
 async function bootstrap() {
-  const settings = await getPageSettings();
-  applyLiveSettings(settings);
+  if (guardStaleExtension()) return;
+
+  try {
+    const settings = await getPageSettings();
+    applyLiveSettings(settings);
+  } catch (err) {
+    if (isStaleExtensionError(err)) {
+      guardStaleExtension();
+      return;
+    }
+    throw err;
+  }
+
+  if (!extensionAlive()) {
+    guardStaleExtension();
+    return;
+  }
 
   chrome.storage.onChanged.addListener((changes, area) => {
+    if (guardStaleExtension()) return;
     if (area !== 'local' || (!changes[SETTINGS_KEY] && !changes[SECRET_KEY])) return;
-    void getPageSettings().then((updated) => {
+    void getPageSettings()
+      .then((updated) => {
       const oldVal = changes[SETTINGS_KEY]?.oldValue as ExtensionSettings | undefined;
       applyLiveSettings(updated);
       const langChanged =
@@ -109,8 +157,16 @@ async function bootstrap() {
         const video = playerHook.findVideoElement();
         if (video) subtitleManager.loadSubtitlesForVideo(video, { skipCache: langChanged });
       }
-    });
+    })
+      .catch((err) => {
+        if (isStaleExtensionError(err)) guardStaleExtension();
+      });
   });
+
+  if (!extensionAlive()) {
+    guardStaleExtension();
+    return;
+  }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type === 'UPDATE_SETTINGS' && message.settings) {
@@ -182,6 +238,7 @@ function bindVideoListeners(video: HTMLVideoElement): void {
 
 function observePlayer() {
   const runCheck = () => {
+    if (guardStaleExtension()) return;
     if (attaching) return;
     const video = document.querySelector('video') as HTMLVideoElement | null;
     if (!video) return;
@@ -233,7 +290,11 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
       bindVideoListeners(video);
       subtitleManager.rebindVideo(video);
       isInitialized = true;
-      void getPageSettings().then(applyLiveSettings);
+      void getPageSettings()
+        .then(applyLiveSettings)
+        .catch((err) => {
+          if (isStaleExtensionError(err)) guardStaleExtension();
+        });
       return;
     }
 
@@ -248,13 +309,17 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
 
     shadowOverlay.init(container);
 
-    getPageSettings().then(async (settings) => {
-      applyLiveSettings(settings);
-      const pending = await consumePendingSeek();
-      if (pending && pending.lectureId === lectureKeyFromUrl()) {
-        playerHook.setTime(pending.time);
-      }
-    });
+    getPageSettings()
+      .then(async (settings) => {
+        applyLiveSettings(settings);
+        const pending = await consumePendingSeek();
+        if (pending && pending.lectureId === lectureKeyFromUrl()) {
+          playerHook.setTime(pending.time);
+        }
+      })
+      .catch((err) => {
+        if (isStaleExtensionError(err)) guardStaleExtension();
+      });
 
     subtitleManager.loadSubtitlesForVideo(video);
 

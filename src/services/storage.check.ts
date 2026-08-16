@@ -3,6 +3,7 @@ import {
   blobKeyFromSettings,
   dropSecret,
   keyIsConfigured,
+  isStaleExtensionError,
   mergePublicPersist,
   mergeSettings,
   readSecretFromBag,
@@ -59,6 +60,8 @@ assert(
   mergeSettings({ subStyle: { dockOpacity: 55, dockAmbient: true } }).subStyle.dockOpacity === 55,
   'chosen dock opacity kept'
 );
+assert(isStaleExtensionError(new Error('Extension context invalidated.')), 'stale extension detected');
+assert(!isStaleExtensionError(new Error('quota exceeded')), 'non-stale error');
 
 if (process.exitCode) {
   console.error('storage check failed');

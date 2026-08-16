@@ -23,6 +23,20 @@ let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let stashAsked = false;
 let syncingKeyFlag = false;
 
+/** Content script dies after extension reload; chrome APIs throw until tab refresh. */
+export function extensionAlive(): boolean {
+  try {
+    return typeof chrome !== 'undefined' && Boolean(chrome.runtime?.id);
+  } catch {
+    return false;
+  }
+}
+
+export function isStaleExtensionError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err ?? '');
+  return msg.includes('Extension context invalidated');
+}
+
 function mergeSubStyle(raw: Partial<SubtitleStyle> | undefined, patch?: Partial<SubtitleStyle>): SubtitleStyle {
   const base = raw || {};
   const merged: SubtitleStyle = {
@@ -120,44 +134,64 @@ export function mergeSettings(raw: Partial<ExtensionSettings> | undefined): Exte
 
 function readChrome(area: chrome.storage.StorageArea, keys: string[]): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage) {
+    if (!extensionAlive() || typeof chrome === 'undefined' || !chrome.storage) {
       resolve({});
       return;
     }
-    area.get(keys, (result) => {
-      if (chrome.runtime.lastError) {
-        resolve({});
-        return;
-      }
-      resolve(result || {});
-    });
+    try {
+      area.get(keys, (result) => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          if (isStaleExtensionError(err.message)) resolve({});
+          else resolve({});
+          return;
+        }
+        resolve(result || {});
+      });
+    } catch (err) {
+      if (isStaleExtensionError(err)) resolve({});
+      else resolve({});
+    }
   });
 }
 
 function writeChrome(items: Record<string, unknown>): Promise<void> {
   return new Promise((resolve, reject) => {
-    if (typeof chrome === 'undefined' || !chrome.storage) {
+    if (!extensionAlive() || typeof chrome === 'undefined' || !chrome.storage) {
       resolve();
       return;
     }
-    chrome.storage.local.set(items, () => {
-      const err = chrome.runtime.lastError;
-      if (err) reject(new Error(err.message));
-      else resolve();
-    });
+    try {
+      chrome.storage.local.set(items, () => {
+        const err = chrome.runtime.lastError;
+        if (err) {
+          if (isStaleExtensionError(err.message)) resolve();
+          else reject(new Error(err.message));
+          return;
+        }
+        resolve();
+      });
+    } catch (err) {
+      if (isStaleExtensionError(err)) resolve();
+      else reject(err instanceof Error ? err : new Error(String(err)));
+    }
   });
 }
 
 function removeChrome(keys: string[]): Promise<void> {
   return new Promise((resolve) => {
-    if (typeof chrome === 'undefined' || !chrome.storage) {
+    if (!extensionAlive() || typeof chrome === 'undefined' || !chrome.storage) {
       resolve();
       return;
     }
-    chrome.storage.local.remove(keys, () => {
-      void chrome.runtime.lastError;
+    try {
+      chrome.storage.local.remove(keys, () => {
+        void chrome.runtime.lastError;
+        resolve();
+      });
+    } catch {
       resolve();
-    });
+    }
   });
 }
 
@@ -166,12 +200,16 @@ export function invalidateSettingsCache(): void {
 }
 
 function askSwToStashKey(): void {
-  if (stashAsked || secretsAllowed()) return;
+  if (stashAsked || secretsAllowed() || !extensionAlive()) return;
   if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) return;
   stashAsked = true;
-  chrome.runtime.sendMessage({ type: 'STASH_GEMINI_KEY' }, () => {
-    void chrome.runtime.lastError;
-  });
+  try {
+    chrome.runtime.sendMessage({ type: 'STASH_GEMINI_KEY' }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    /* stale content script */
+  }
 }
 
 async function readSecret(): Promise<string> {
@@ -253,12 +291,16 @@ export async function getSettings(opts?: { fresh?: boolean }): Promise<Extension
   if (blobKeyFromSettings(raw)) askSwToStashKey();
 
   const loaded = mergeSettings(raw);
-  if (!local[SETTINGS_KEY] && raw) {
+  if (!local[SETTINGS_KEY] && raw && extensionAlive()) {
     const fromLocalBlob = blobKeyFromSettings(localRaw);
     cachedSettings = dropSecret(loaded);
     await saveSettings(loaded, { immediate: true, skipMerge: true });
-    chrome.storage.sync.remove([...LEGACY_SETTINGS_KEYS, SETTINGS_KEY]);
-    chrome.storage.local.remove(LEGACY_SETTINGS_KEYS);
+    try {
+      chrome.storage.sync.remove([...LEGACY_SETTINGS_KEYS, SETTINGS_KEY]);
+      chrome.storage.local.remove(LEGACY_SETTINGS_KEYS);
+    } catch {
+      /* stale */
+    }
     if (secretsAllowed() && fromLocalBlob) {
       const existing = await readSecret();
       if (!existing) await writeSecret(fromLocalBlob);
@@ -295,10 +337,14 @@ export function mergePublicPersist(
 }
 
 async function persistPublicSettings(updated: ExtensionSettings): Promise<void> {
-  if (typeof chrome === 'undefined' || !chrome.storage) return;
+  if (!extensionAlive() || typeof chrome === 'undefined' || !chrome.storage) return;
   const bag = await readChrome(chrome.storage.local, [SETTINGS_KEY]);
   const prev = bag[SETTINGS_KEY] as Partial<ExtensionSettings> | undefined;
-  await writeChrome({ [SETTINGS_KEY]: mergePublicPersist(updated, prev) });
+  try {
+    await writeChrome({ [SETTINGS_KEY]: mergePublicPersist(updated, prev) });
+  } catch (err) {
+    if (!isStaleExtensionError(err)) throw err;
+  }
 }
 
 export function applySettingsCache(settings: ExtensionSettings): void {
@@ -365,20 +411,37 @@ export async function flushPendingSave(): Promise<void> {
 /** Content: ask SW so the key-present flag is truthful. Popup/SW use getSettings. */
 export function getPageSettings(): Promise<ExtensionSettings> {
   if (secretsAllowed()) return getSettings({ fresh: true });
+  if (!extensionAlive()) {
+    return Promise.resolve(cachedSettings ? settingsForPage(cachedSettings) : mergeSettings(undefined));
+  }
   return new Promise((resolve) => {
     if (typeof chrome === 'undefined' || !chrome.runtime?.sendMessage) {
-      void getSettings({ fresh: true }).then(resolve);
+      void getSettings({ fresh: true })
+        .then(resolve)
+        .catch(() => resolve(cachedSettings ? settingsForPage(cachedSettings) : mergeSettings(undefined)));
       return;
     }
-    chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (res) => {
-      if (chrome.runtime.lastError || !res || typeof res !== 'object') {
-        void getSettings({ fresh: true }).then(resolve);
-        return;
+    try {
+      chrome.runtime.sendMessage({ type: 'GET_SETTINGS' }, (res) => {
+        if (chrome.runtime.lastError || !res || typeof res !== 'object') {
+          void getSettings({ fresh: true })
+            .then(resolve)
+            .catch(() => resolve(cachedSettings ? settingsForPage(cachedSettings) : mergeSettings(undefined)));
+          return;
+        }
+        const page = settingsForPage(mergeSettings(res as Partial<ExtensionSettings>));
+        applySettingsCache(page);
+        resolve(page);
+      });
+    } catch (err) {
+      if (isStaleExtensionError(err)) {
+        resolve(cachedSettings ? settingsForPage(cachedSettings) : mergeSettings(undefined));
+      } else {
+        void getSettings({ fresh: true })
+          .then(resolve)
+          .catch(() => resolve(cachedSettings ? settingsForPage(cachedSettings) : mergeSettings(undefined)));
       }
-      const page = settingsForPage(mergeSettings(res as Partial<ExtensionSettings>));
-      applySettingsCache(page);
-      resolve(page);
-    });
+    }
   });
 }
 
