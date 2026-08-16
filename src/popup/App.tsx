@@ -46,9 +46,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[560px] bg-[#090a0c] text-zinc-300 gap-2.5">
-        <div className="w-5 h-5 rounded-full border-2 border-zinc-600 border-t-zinc-200 animate-spin" />
-        <span className="text-xs font-mono tracking-wider text-zinc-400">DUETTO</span>
+      <div className="flex flex-col items-center justify-center h-[560px] bg-canvas text-mute gap-2.5">
+        <div className="w-5 h-5 rounded-full border-2 border-line border-t-ink animate-spin" />
+        <span className="text-xs font-mono tracking-wider text-mute">DUETTO</span>
       </div>
     );
   }
@@ -61,20 +61,20 @@ export default function App() {
   ];
 
   return (
-    <div className="flex flex-col h-[560px] bg-[#090a0c] text-zinc-100 font-sans antialiased">
-      <header className="px-3.5 py-2.5 bg-[#101216] border-b border-[#1f2228] flex items-center justify-between shrink-0">
+    <div className="flex flex-col h-[560px] bg-canvas text-ink font-sans antialiased">
+      <header className="px-3.5 py-2.5 bg-raised border-b border-line flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded-lg bg-zinc-900 border border-zinc-700/80 overflow-hidden flex items-center justify-center shrink-0">
+          <div className="w-6 h-6 rounded-lg bg-canvas border border-line overflow-hidden flex items-center justify-center shrink-0">
             <img src="/icons/duetto-icon-light.svg" alt="Duetto" className="w-full h-full object-cover" />
           </div>
           <div className="flex items-baseline gap-1.5">
-            <h1 className="text-sm font-bold tracking-tight text-white">DUETTO</h1>
-            <span className="text-[11px] font-mono text-zinc-400">v2.17.0</span>
+            <h1 className="text-sm font-bold tracking-tight text-ink">DUETTO</h1>
+            <span className="text-[11px] font-mono text-mute">v2.17.0</span>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-xs font-medium text-zinc-300" id="dual-label">
+          <span className="text-xs font-medium text-ink" id="dual-label">
             Çift Altyazı
           </span>
           <label className="relative inline-flex items-center cursor-pointer min-h-8 min-w-8 justify-center">
@@ -85,13 +85,13 @@ export default function App() {
               onChange={(e) => handleUpdateSettings({ dualSubtitlesEnabled: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-zinc-700 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[6px] after:left-[6px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600" />
+            <div className="w-9 h-5 bg-line peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[6px] after:left-[6px] after:bg-ink after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-brand" />
           </label>
         </div>
       </header>
 
       <div className="px-3.5 pt-2.5 pb-1 shrink-0">
-        <nav className="flex items-center p-0.5 bg-[#121418] rounded-xl border border-[#20232a]" aria-label="Ayar sekmeleri">
+        <nav className="flex items-center p-0.5 bg-raised rounded-xl border border-line" aria-label="Ayar sekmeleri">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -101,10 +101,10 @@ export default function App() {
                 type="button"
                 onClick={() => setActiveTab(tab.id)}
                 aria-current={isActive ? 'page' : undefined}
-                className={`flex-1 flex items-center justify-center gap-1 min-h-9 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                className={`flex-1 flex items-center justify-center gap-1 min-h-9 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-brand-ring ${
                   isActive
-                    ? 'bg-[#222630] text-white font-semibold'
-                    : 'text-zinc-400 hover:text-zinc-200'
+                    ? 'bg-brand/20 text-ink font-semibold'
+                    : 'text-mute hover:text-ink hover:bg-lift/60'
                 }`}
               >
                 <Icon className="w-3.5 h-3.5" aria-hidden />

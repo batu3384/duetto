@@ -4,7 +4,8 @@
 
 @layer base {
   body {
-    @apply bg-[#090a0c] text-zinc-100 font-sans antialiased;
+    @apply bg-canvas text-ink font-sans antialiased;
+    color-scheme: dark;
     width: 380px;
     height: 560px;
     margin: 0;
@@ -22,7 +23,7 @@
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #3f444e;
+  background: #2c3546;
   border-radius: 9999px;
 }
 
@@ -37,13 +38,14 @@ input[type='color'] {
   cursor: pointer;
 }
 input[type='range'] {
-  @apply appearance-none bg-zinc-700 h-1.5 rounded-full outline-none cursor-pointer;
+  @apply appearance-none h-1.5 rounded-full outline-none cursor-pointer bg-line;
+  accent-color: #2f6fe4;
 }
 input[type='range']:focus-visible {
-  @apply ring-2 ring-blue-400 ring-offset-1 ring-offset-[#090a0c];
+  @apply ring-2 ring-brand-ring ring-offset-1 ring-offset-canvas;
 }
 input[type='range']::-webkit-slider-thumb {
-  @apply appearance-none w-4 h-4 bg-white rounded-full cursor-pointer border border-zinc-300;
+  @apply appearance-none w-4 h-4 bg-ink rounded-full cursor-pointer border border-line;
 }
 
 @media (prefers-reduced-motion: reduce) {

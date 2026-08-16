@@ -189,7 +189,7 @@ export class UIRenderer {
     } else if (layoutMode !== 'source_only') {
       const pending = pendingTranslationMessage(this.settings);
       if (pending.isError) {
-        translationBlock = `<div class="sub-secondary sub-pending sub-error" style="font-size:${look.secondarySize}px;color:#fca5a5;${typeStyle}">${escapeHtml(pending.text)}</div>`;
+        translationBlock = `<div class="sub-secondary sub-pending sub-error" style="font-size:${look.secondarySize}px;color:#ecc8c8;${typeStyle}">${escapeHtml(pending.text)}</div>`;
       }
     }
 
@@ -422,7 +422,7 @@ export class UIRenderer {
       if (gen !== this.tooltipGen) return;
       bodyEl.innerHTML = `
         <div class="tooltip-word">${safeDisplay}</div>
-        <div class="tooltip-trans" style="color: #ef4444;">Çeviri alınamadı</div>
+        <div class="tooltip-trans" style="color: #ecc8c8;">Çeviri alınamadı</div>
       `;
       place();
     }

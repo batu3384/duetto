@@ -44,6 +44,9 @@ export class ShadowOverlayHost {
       :host {
         font-family: Arial, Helvetica, sans-serif;
         color-scheme: dark;
+        --duetto-focus: #82a9ef;
+        --duetto-brand: #2f6fe4;
+        --duetto-chrome: rgba(14, 20, 36, 0.88);
         pointer-events: none;
       }
       * {
@@ -227,12 +230,12 @@ export class ShadowOverlayHost {
         color: inherit !important;
       }
       .sub-word:focus-visible {
-        outline: 2px solid #60a5fa;
+        outline: 2px solid var(--duetto-focus);
         outline-offset: 2px;
-        background: rgba(59, 130, 246, 0.4);
+        background: rgba(47, 111, 228, 0.35);
       }
       .sub-word.term-locked {
-        color: #93c5fd;
+        color: var(--duetto-focus);
         font-weight: 600;
       }
 
@@ -279,7 +282,7 @@ export class ShadowOverlayHost {
         border-radius: inherit;
         pointer-events: none;
         z-index: 0;
-        background: rgba(0, 0, 0, 0.82);
+        background: var(--duetto-chrome);
         backdrop-filter: blur(12px) saturate(1.1);
         -webkit-backdrop-filter: blur(12px) saturate(1.1);
       }
@@ -299,10 +302,10 @@ export class ShadowOverlayHost {
         height: 0;
         border-left: 5px solid transparent;
         border-right: 5px solid transparent;
-        border-top: 5px solid rgba(14, 16, 20, 0.96);
+        border-top: 5px solid rgba(14, 20, 36, 0.96);
       }
       .tooltip-word {
-        color: rgba(255, 255, 255, 0.5);
+        color: #9aa4b5;
         font-weight: 500;
         font-size: 10px;
         letter-spacing: 0.06em;
@@ -318,8 +321,8 @@ export class ShadowOverlayHost {
       }
       .tooltip-tag {
         font-size: 9px;
-        background: rgba(59, 130, 246, 0.25);
-        color: #93c5fd;
+        background: rgba(47, 111, 228, 0.28);
+        color: var(--duetto-focus);
         padding: 1px 4px;
         border-radius: 3px;
         font-weight: 600;
@@ -337,7 +340,7 @@ export class ShadowOverlayHost {
         justify-content: flex-end;
         gap: 0;
         max-width: min(calc(100% - 16px), 420px);
-        background: rgba(0, 0, 0, 0.78);
+        background: var(--duetto-chrome);
         padding: 2px;
         border-radius: 8px;
         border: 1px solid rgba(255, 255, 255, 0.1);
@@ -352,7 +355,7 @@ export class ShadowOverlayHost {
       .tool-btn {
         background: transparent;
         border: none;
-        color: #d4d4d8;
+        color: #e8ebf2;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -378,7 +381,7 @@ export class ShadowOverlayHost {
         margin: 0 2px;
       }
       .tool-btn:focus-visible {
-        outline: 2px solid #60a5fa;
+        outline: 2px solid var(--duetto-focus);
         outline-offset: 2px;
       }
       .tool-btn:hover {
@@ -386,7 +389,7 @@ export class ShadowOverlayHost {
         color: #ffffff;
       }
       .tool-btn.active {
-        background: rgba(255, 255, 255, 0.14);
+        background: color-mix(in srgb, var(--duetto-brand) 28%, transparent);
         color: #ffffff;
       }
       .speed-badge {
@@ -408,7 +411,7 @@ export class ShadowOverlayHost {
         background: rgba(255, 255, 255, 0.1);
       }
       .speed-badge:focus-visible {
-        outline: 2px solid #60a5fa;
+        outline: 2px solid var(--duetto-focus);
         outline-offset: 2px;
       }
       .toast {
@@ -416,7 +419,7 @@ export class ShadowOverlayHost {
         top: 16px;
         left: 50%;
         transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.88);
+        background: var(--duetto-chrome);
         color: #ffffff;
         border: 1px solid rgba(255, 255, 255, 0.12);
         padding: 6px 14px;

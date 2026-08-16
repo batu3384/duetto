@@ -67,19 +67,19 @@ export const NotesTab: React.FC = () => {
 
   return (
     <div className="space-y-3">
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-2">
-        <label htmlFor="tx-search" className="text-xs font-semibold text-zinc-300">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2">
+        <label htmlFor="tx-search" className="text-xs font-semibold text-ink">
           Transkript ara
         </label>
         <div className="flex gap-1.5 items-center">
-          <Search className="w-3.5 h-3.5 text-zinc-500 shrink-0" aria-hidden />
+          <Search className="w-3.5 h-3.5 text-faint shrink-0" aria-hidden />
           <input
             id="tx-search"
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="En az 2 karakter…"
-            className="flex-1 bg-[#181a1f] border border-[#272a32] text-zinc-200 text-xs rounded-lg px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="flex-1 bg-inset border border-line text-ink text-xs rounded-lg px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-brand-ring"
           />
         </div>
         {hits.length > 0 && (
@@ -96,12 +96,12 @@ export const NotesTab: React.FC = () => {
                       time: h.cue.startTime,
                     })
                   }
-                  className="w-full text-left p-2 rounded-lg bg-[#16181e] border border-[#20232a] hover:bg-[#1c1f26] focus-visible:ring-2 focus-visible:ring-blue-400"
+                  className="w-full text-left p-2 rounded-lg bg-inset border border-line hover:bg-lift focus-visible:ring-2 focus-visible:ring-brand-ring"
                 >
-                  <div className="text-[11px] text-zinc-500">
+                  <div className="text-[11px] text-faint">
                     {h.transcript.lectureTitle} · {fmtTime(h.cue.startTime)}
                   </div>
-                  <div className="text-xs text-zinc-200 line-clamp-2">{h.cue.text}</div>
+                  <div className="text-xs text-ink line-clamp-2">{h.cue.text}</div>
                 </button>
               </li>
             ))}
@@ -110,12 +110,12 @@ export const NotesTab: React.FC = () => {
       </div>
 
       <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold text-zinc-300">Kayıtlı notlar ({notes.length})</div>
+        <div className="text-xs font-semibold text-ink">Kayıtlı notlar ({notes.length})</div>
         <button
           type="button"
           onClick={exportMd}
           disabled={notes.length === 0}
-          className="inline-flex items-center gap-1 text-xs text-zinc-200 min-h-8 px-2 rounded-lg border border-[#272a32] disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-blue-400"
+          className="inline-flex items-center gap-1 text-xs text-ink min-h-8 px-2 rounded-lg border border-line disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-ring"
         >
           <Download className="w-3.5 h-3.5" aria-hidden />
           Markdown
@@ -123,11 +123,11 @@ export const NotesTab: React.FC = () => {
       </div>
 
       {notes.length === 0 ? (
-        <p className="text-xs text-zinc-400">Udemy’de S tuşu: kare + çift altyazı notu.</p>
+        <p className="text-xs text-mute">Udemy’de S tuşu: kare + çift altyazı notu.</p>
       ) : (
         <ul className="space-y-2">
           {notes.map((note) => (
-            <li key={note.id} className="p-2.5 bg-[#111317] rounded-xl border border-[#1f2228] space-y-1.5">
+            <li key={note.id} className="p-2.5 bg-surface rounded-xl border border-line space-y-1.5">
               <div className="flex items-start justify-between gap-2">
                 <button
                   type="button"
@@ -139,16 +139,16 @@ export const NotesTab: React.FC = () => {
                       time: note.time,
                     })
                   }
-                  className="text-left min-w-0 focus-visible:ring-2 focus-visible:ring-blue-400 rounded"
+                  className="text-left min-w-0 focus-visible:ring-2 focus-visible:ring-brand-ring rounded"
                 >
-                  <div className="text-xs font-medium text-zinc-200 truncate">{note.lectureTitle}</div>
-                  <div className="text-[11px] text-zinc-500">{fmtTime(note.time)}</div>
+                  <div className="text-xs font-medium text-ink truncate">{note.lectureTitle}</div>
+                  <div className="text-[11px] text-faint">{fmtTime(note.time)}</div>
                 </button>
                 <button
                   type="button"
                   aria-label="Notu sil"
                   onClick={async () => setNotes(await deleteNote(note.id))}
-                  className="min-w-8 min-h-8 flex items-center justify-center text-zinc-400 hover:text-red-400 focus-visible:ring-2 focus-visible:ring-blue-400 rounded"
+                  className="min-w-8 min-h-8 flex items-center justify-center text-mute hover:text-danger-fg focus-visible:ring-2 focus-visible:ring-brand-ring rounded"
                 >
                   <Trash2 className="w-3.5 h-3.5" aria-hidden />
                 </button>
@@ -156,8 +156,8 @@ export const NotesTab: React.FC = () => {
               {note.imageDataUrl ? (
                 <img src={note.imageDataUrl} alt="" className="w-full rounded-md max-h-28 object-cover" />
               ) : null}
-              {note.sourceText ? <p className="text-xs text-zinc-300">{note.sourceText}</p> : null}
-              {note.translation ? <p className="text-xs text-zinc-400">{note.translation}</p> : null}
+              {note.sourceText ? <p className="text-xs text-ink">{note.sourceText}</p> : null}
+              {note.translation ? <p className="text-xs text-mute">{note.translation}</p> : null}
             </li>
           ))}
         </ul>

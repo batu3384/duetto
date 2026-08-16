@@ -90,32 +90,32 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
   return (
     <div className="space-y-3">
       {!hasKey && (
-        <div className="p-2.5 rounded-lg border border-amber-900/50 bg-amber-950/30 text-xs text-amber-200">
+        <div className="p-2.5 rounded-lg border border-warn/30 bg-warn-dim text-xs text-warn-fg">
           Çeviri yalnız Gemini. Google Translate kaldırıldı. Anahtar olmadan altyazı çevrilmez.
         </div>
       )}
 
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-2.5">
-        <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2.5">
+        <div className="flex items-center justify-between text-xs font-semibold text-ink">
           <span>Gemini</span>
-          <span className={`font-mono text-[11px] ${hasKey ? 'text-emerald-400' : 'text-amber-400'}`}>
+          <span className={`font-mono text-[11px] ${hasKey ? 'text-ok' : 'text-warn'}`}>
             {hasKey ? 'Anahtar var' : 'Anahtar gerekli'}
           </span>
         </div>
 
-        <p className="text-[11px] text-zinc-500 leading-snug">
+        <p className="text-[11px] text-faint leading-snug">
           Anahtar bu cihazda, uzantı deposunda kalır. Udemy sayfasına ve senkronize hesaba gitmez. Sayfa yenilemek silmez.
         </p>
 
         <div className="space-y-1">
-          <label htmlFor="gemini-model" className="text-xs text-zinc-400">
+          <label htmlFor="gemini-model" className="text-xs text-mute">
             Model
           </label>
           <select
             id="gemini-model"
             value={settings.geminiModel || 'gemini-3.5-flash-lite'}
             onChange={(e) => onChange({ geminiModel: e.target.value })}
-            className="w-full bg-[#181a1f] border border-[#272a32] text-zinc-200 text-xs rounded-lg px-2.5 py-2 outline-none font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="w-full bg-inset border border-line text-ink text-xs rounded-lg px-2.5 py-2 outline-none font-medium cursor-pointer focus-visible:ring-2 focus-visible:ring-brand-ring"
           >
             {AVAILABLE_GEMINI_MODELS.map((m) => (
               <option key={m.id} value={m.id}>
@@ -126,9 +126,9 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
         </div>
 
         <div className="space-y-1">
-          <div className="flex items-center justify-between text-xs text-zinc-400">
+          <div className="flex items-center justify-between text-xs text-mute">
             <label htmlFor="api-key">API anahtarı</label>
-            <span className={`font-mono ${hasKey ? 'text-zinc-400' : 'text-amber-400'}`}>
+            <span className={`font-mono ${hasKey ? 'text-mute' : 'text-warn'}`}>
               {hasKey ? 'Kayıtlı' : 'Yok'}
             </span>
           </div>
@@ -142,7 +142,7 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
             value={keyDraft}
             onChange={(e) => setKeyDraft(e.target.value)}
             onBlur={() => void commitKey(keyDraft)}
-            className="w-full bg-[#181a1f] border border-[#272a32] text-zinc-200 text-xs rounded-lg px-2.5 py-2 outline-none font-mono focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="w-full bg-inset border border-line text-ink text-xs rounded-lg px-2.5 py-2 outline-none font-mono focus-visible:ring-2 focus-visible:ring-brand-ring"
           />
           {hasKey && (
             <button
@@ -151,17 +151,17 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
                 setKeyDraft('');
                 void onChange({ geminiApiKey: '' });
               }}
-              className="text-[11px] text-zinc-500 hover:text-red-400 min-h-8"
+              className="text-[11px] text-faint hover:text-danger-fg min-h-8"
             >
               Anahtarı bu cihazdan sil
             </button>
           )}
         </div>
 
-        <div className="space-y-1 pt-1 border-t border-[#1b1e24]">
-          <div className="flex items-center justify-between text-xs text-zinc-400">
+        <div className="space-y-1 pt-1 border-t border-line">
+          <div className="flex items-center justify-between text-xs text-mute">
             <label htmlFor="temp">Çeviri doğallığı</label>
-            <span className="font-mono text-zinc-300 font-bold">{(settings.geminiTemperature ?? 0.2).toFixed(1)}</span>
+            <span className="font-mono text-ink font-bold">{(settings.geminiTemperature ?? 0.2).toFixed(1)}</span>
           </div>
           <input
             id="temp"
@@ -179,9 +179,9 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
           type="button"
           onClick={handleTestConnection}
           disabled={testing || !hasKey}
-          className="w-full min-h-10 py-2 bg-[#1e222a] hover:bg-[#282d38] text-zinc-200 text-xs font-semibold rounded-lg border border-[#2d323e] disabled:opacity-50 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-blue-400"
+          className="w-full min-h-10 py-2 bg-inset hover:bg-lift text-ink text-xs font-semibold rounded-lg border border-line disabled:opacity-50 flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-brand-ring"
         >
-          <Activity className="w-3.5 h-3.5 text-zinc-400" aria-hidden />
+          <Activity className="w-3.5 h-3.5 text-mute" aria-hidden />
           <span>{testing ? 'Çeviri test ediliyor…' : 'Gemini çevirisini test et'}</span>
         </button>
 
@@ -191,27 +191,27 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
             aria-live="polite"
             className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
               testResult.success
-                ? 'bg-[#101b15] text-emerald-300 border border-emerald-900/60'
-                : 'bg-[#221313] text-red-300 border border-red-900/60'
+                ? 'bg-ok-dim text-ok-fg border border-ok/40'
+                : 'bg-danger-dim text-danger-fg border border-danger/40'
             }`}
           >
             {testResult.success ? (
-              <CheckCircle className="w-3.5 h-3.5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
+              <CheckCircle className="w-3.5 h-3.5 text-ok shrink-0 mt-0.5" aria-hidden />
             ) : (
-              <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0 mt-0.5" aria-hidden />
+              <AlertCircle className="w-3.5 h-3.5 text-danger shrink-0 mt-0.5" aria-hidden />
             )}
             <div className="flex-1 min-w-0 space-y-1">
               {testResult.success ? (
                 <>
                   <div className="font-medium">Gemini çalışıyor ({testResult.model})</div>
-                  <div className="text-[11px] font-mono text-emerald-400/90">{testResult.latencyMs} ms</div>
+                  <div className="text-[11px] font-mono text-ok/90">{testResult.latencyMs} ms</div>
                   {testResult.phrase && (
-                    <div className="text-[11px] text-zinc-300 break-words">
-                      Kelime: <span className="text-zinc-400">{testResult.phrase.source}</span> →{' '}
-                      <span className="text-white">{testResult.phrase.translation}</span>
+                    <div className="text-[11px] text-ink break-words">
+                      Kelime: <span className="text-mute">{testResult.phrase.source}</span> →{' '}
+                      <span className="text-ink">{testResult.phrase.translation}</span>
                     </div>
                   )}
-                  <div className="text-[11px] text-emerald-200/80">Altyazı çevirisi bu ders için yeniden başladı.</div>
+                  <div className="text-[11px] text-ok-fg">Altyazı çevirisi bu ders için yeniden başladı.</div>
                 </>
               ) : (
                 <div className="font-medium break-words">{testResult.error}</div>
@@ -221,9 +221,9 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
         )}
       </div>
 
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-2">
-        <div className="text-xs font-semibold text-zinc-300">Korunan terimler</div>
-        <div className="text-[11px] text-zinc-400">Çeviride orijinal kalacak teknik sözcükler.</div>
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2">
+        <div className="text-xs font-semibold text-ink">Korunan terimler</div>
+        <div className="text-[11px] text-mute">Çeviride orijinal kalacak teknik sözcükler.</div>
 
         <div className="flex gap-1.5">
           <label className="sr-only" htmlFor="new-term">
@@ -236,13 +236,13 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
             value={newTerm}
             onChange={(e) => setNewTerm(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddTerm()}
-            className="flex-1 bg-[#181a1f] border border-[#272a32] text-zinc-200 text-xs rounded-lg px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="flex-1 bg-inset border border-line text-ink text-xs rounded-lg px-2 py-2 outline-none focus-visible:ring-2 focus-visible:ring-brand-ring"
           />
           <button
             type="button"
             onClick={handleAddTerm}
             aria-label="Terim ekle"
-            className="min-w-8 min-h-8 px-2.5 py-1 bg-[#20242e] hover:bg-[#2c3240] text-zinc-200 rounded-lg border border-[#2f3544] focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="min-w-8 min-h-8 px-2.5 py-1 bg-inset hover:bg-lift text-ink rounded-lg border border-line focus-visible:ring-2 focus-visible:ring-brand-ring"
           >
             <Plus className="w-3.5 h-3.5" aria-hidden />
           </button>
@@ -254,7 +254,7 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
             return (
               <span
                 key={term}
-                className="inline-flex items-center gap-1 px-2 py-1 bg-[#181a1f] text-zinc-300 text-[11px] font-mono rounded-md border border-[#272a32]"
+                className="inline-flex items-center gap-1 px-2 py-1 bg-inset text-ink text-[11px] font-mono rounded-md border border-line"
               >
                 {term}
                 {isCustom && (
@@ -266,7 +266,7 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
                         customProtectedTerms: (settings.customProtectedTerms || []).filter((t) => t !== term),
                       })
                     }
-                    className="hover:text-red-400 focus-visible:ring-2 focus-visible:ring-blue-400 rounded"
+                    className="hover:text-danger-fg focus-visible:ring-2 focus-visible:ring-brand-ring rounded"
                   >
                     <X className="w-2.5 h-2.5" aria-hidden />
                   </button>

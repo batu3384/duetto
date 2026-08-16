@@ -179,7 +179,7 @@ export const BOX_COLORS: { name: string; color: string }[] = [
   { name: 'Sinema', color: '#0e1424' },
   { name: 'Kömür', color: '#18181b' },
   { name: 'Lacivert', color: '#0f172a' },
-  { name: 'Gece', color: '#1e1b4b' },
+  { name: 'Gece', color: '#152038' },
   { name: 'Orman', color: '#14532d' },
   { name: 'Bordo', color: '#3f1d1d' },
   { name: 'Açık', color: '#e4e4e7' },

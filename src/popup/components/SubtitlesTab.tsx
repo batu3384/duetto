@@ -45,13 +45,13 @@ function ColorSwatches({
           title={p.name}
           onClick={() => onChange(p.color)}
           style={{ backgroundColor: p.color }}
-          className={`w-7 h-7 min-w-7 min-h-7 rounded-md border cursor-pointer focus-visible:ring-2 focus-visible:ring-blue-400 ${
-            value.toLowerCase() === p.color ? 'border-white ring-1 ring-white' : 'border-black/50 hover:border-white/50'
+          className={`w-7 h-7 min-w-7 min-h-7 rounded-md border cursor-pointer focus-visible:ring-2 focus-visible:ring-brand-ring ${
+            value.toLowerCase() === p.color ? 'border-brand-ring ring-1 ring-brand-ring' : 'border-black/50 hover:border-ink/50'
           }`}
         />
       ))}
       <label
-        className="relative w-7 h-7 min-w-7 min-h-7 rounded-md overflow-hidden border border-[#3a3f4a] cursor-pointer"
+        className="relative w-7 h-7 min-w-7 min-h-7 rounded-md overflow-hidden border border-line cursor-pointer"
         title="Özel renk"
       >
         <input
@@ -92,8 +92,8 @@ function DockColorPresets({
             aria-label={p.name}
             title={p.name}
             onClick={() => onChange(p.color)}
-            className={`rounded-lg overflow-hidden border text-left focus-visible:ring-2 focus-visible:ring-blue-400 cursor-pointer ${
-              active ? 'border-white ring-1 ring-white' : 'border-[#272a32] hover:border-white/40'
+            className={`rounded-lg overflow-hidden border text-left focus-visible:ring-2 focus-visible:ring-brand-ring cursor-pointer ${
+              active ? 'border-brand-ring ring-1 ring-brand-ring' : 'border-line hover:border-ink/40'
             }`}
           >
             <div className="h-7 relative" style={{ background: DOCK_SCENE_BG }}>
@@ -111,12 +111,12 @@ function DockColorPresets({
                 Çeviri
               </span>
             </div>
-            <div className="px-1 py-0.5 text-[9px] text-zinc-400 text-center truncate bg-[#14161c]">{p.name}</div>
+            <div className="px-1 py-0.5 text-[9px] text-mute text-center truncate bg-raised">{p.name}</div>
           </button>
         );
       })}
       <label
-        className="rounded-lg overflow-hidden border border-[#272a32] cursor-pointer focus-within:ring-2 focus-within:ring-blue-400"
+        className="rounded-lg overflow-hidden border border-line cursor-pointer focus-within:ring-2 focus-within:ring-brand-ring"
         title="Özel renk"
       >
         <input
@@ -136,7 +136,7 @@ function DockColorPresets({
             style={{ background: `conic-gradient(#f87171,#fde047,#4ade80,#38bdf8,#e879f9,#f87171)` }}
           />
         </div>
-        <div className="px-1 py-0.5 text-[9px] text-zinc-400 text-center bg-[#14161c]">Özel</div>
+        <div className="px-1 py-0.5 text-[9px] text-mute text-center bg-raised">Özel</div>
       </label>
     </div>
   );
@@ -159,14 +159,14 @@ function FontPicker({
             type="button"
             aria-pressed={selected}
             onClick={() => onChange(f.id)}
-            className={`min-h-11 px-2 py-1.5 rounded-lg border text-left cursor-pointer transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-blue-400 ${
-              selected ? 'border-white bg-[#282d38] ring-1 ring-white' : 'border-[#272a32] bg-[#181a1f] hover:border-white/40'
+            className={`min-h-11 px-2 py-1.5 rounded-lg border text-left cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-brand-ring ${
+              selected ? 'border-brand-ring bg-brand/15 ring-1 ring-brand-ring' : 'border-line bg-inset hover:border-ink/40'
             }`}
           >
             <span className="block text-[13px] leading-tight text-white font-bold" style={{ fontFamily: f.stack, textShadow: '1px 1px 0 #000,-1px 1px 0 #000,1px -1px 0 #000,-1px -1px 0 #000' }}>
               Duetto
             </span>
-            <span className={`block text-[10px] mt-0.5 ${selected ? 'text-zinc-200' : 'text-zinc-500'}`}>{f.name}</span>
+            <span className={`block text-[10px] mt-0.5 ${selected ? 'text-ink' : 'text-faint'}`}>{f.name}</span>
           </button>
         );
       })}
@@ -181,10 +181,10 @@ const ALIGN_OPTIONS: { id: SubtitleAlign; name: string }[] = [
 ];
 
 const fieldClass =
-  'w-full bg-[#181a1f] border border-[#272a32] text-zinc-200 text-xs rounded-lg px-2.5 py-2 focus-visible:ring-2 focus-visible:ring-blue-400 outline-none font-medium cursor-pointer';
+  'w-full bg-inset border border-line text-ink text-xs rounded-lg px-2.5 py-2 focus-visible:ring-2 focus-visible:ring-brand-ring outline-none font-medium cursor-pointer';
 
-const chipOn = 'bg-[#282d38] text-white font-semibold cursor-pointer';
-const chipOff = 'text-zinc-400 hover:text-zinc-200 cursor-pointer';
+const chipOn = 'bg-brand/20 text-ink font-semibold cursor-pointer';
+const chipOff = 'text-mute hover:text-ink cursor-pointer';
 
 export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
   const { subStyle } = settings;
@@ -267,7 +267,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
             SLIDE
           </div>
           <div className="absolute left-3 top-8 w-24 h-1.5 rounded bg-zinc-300" />
-          <div className="absolute left-3 top-11 w-16 h-1.5 rounded bg-zinc-200" />
+          <div className="absolute left-3 top-11 w-16 h-1.5 rounded bg-ink" />
         </>
       ) : (
         <>
@@ -282,20 +282,20 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
   return (
     <div className="space-y-3">
       {!keyIsConfigured(settings) ? (
-        <div className="p-2.5 rounded-lg border border-amber-900/50 bg-amber-950/30 text-xs text-amber-200">
+        <div className="p-2.5 rounded-lg border border-warn/30 bg-warn-dim text-xs text-warn-fg">
           Çeviri yalnız Gemini. Anahtar yok → sarı çeviri satırı gelmez. Gemini sekmesinden anahtar + test.
         </div>
       ) : (
-        <div className="p-2 rounded-lg border border-emerald-900/40 bg-emerald-950/20 text-[11px] text-emerald-300/90 flex items-center justify-between gap-2">
+        <div className="p-2 rounded-lg border border-ok/30 bg-ok-dim text-[11px] text-ok-fg flex items-center justify-between gap-2">
           <span>Gemini anahtarı kayıtlı</span>
-          <span className="font-mono text-emerald-400/80">hedef: {settings.targetLang}</span>
+          <span className="font-mono text-ok">hedef: {settings.targetLang}</span>
         </div>
       )}
 
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-2.5">
-        <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2.5">
+        <div className="flex items-center justify-between text-xs font-semibold text-ink">
           <span>Dil seçimi</span>
-          <span className="font-mono text-[11px] text-zinc-400">Kaynak → Hedef</span>
+          <span className="font-mono text-[11px] text-mute">Kaynak → Hedef</span>
         </div>
 
         <div className="flex items-center gap-2">
@@ -325,7 +325,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
             onClick={handleSwapLanguages}
             aria-label="Dilleri takas et"
             title="Dilleri takas et"
-            className="min-w-8 min-h-8 p-2 bg-[#1e2127] hover:bg-[#282c35] text-zinc-300 rounded-lg border border-[#2c3038] focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="min-w-8 min-h-8 p-2 bg-inset hover:bg-lift text-ink rounded-lg border border-line focus-visible:ring-2 focus-visible:ring-brand-ring"
           >
             <ArrowLeftRight className="w-4 h-4" aria-hidden />
           </button>
@@ -341,7 +341,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 onChange({ targetLang: e.target.value });
                 retrigger();
               }}
-              className={`${fieldClass} border-blue-500/40`}
+              className={`${fieldClass} border-brand/40`}
             >
               {SUPPORTED_LANGUAGES.map((lang) => (
                 <option key={lang.code} value={lang.code}>
@@ -352,10 +352,10 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           </div>
         </div>
 
-        <div className="flex items-center justify-between pt-1.5 border-t border-[#1b1e24]">
+        <div className="flex items-center justify-between pt-1.5 border-t border-line">
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3.5 h-3.5 text-zinc-400" aria-hidden />
-            <span className="text-xs font-medium text-zinc-300" id="term-lock-label">
+            <Sparkles className="w-3.5 h-3.5 text-mute" aria-hidden />
+            <span className="text-xs font-medium text-ink" id="term-lock-label">
               Teknik terimleri koru
             </span>
           </div>
@@ -367,22 +367,22 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               onChange={(e) => onChange({ termLockEnabled: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="w-9 h-5 bg-zinc-700 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[6px] after:right-[18px] after:bg-white after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-blue-600" />
+            <div className="w-9 h-5 bg-line peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[6px] after:right-[18px] after:bg-ink after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-brand" />
           </label>
         </div>
       </div>
 
-      <div className="sticky top-0 z-10 -mx-0.5 pb-1 bg-[#090a0c]">
+      <div className="sticky top-0 z-10 -mx-0.5 pb-1 bg-canvas">
       <div className="p-0 bg-transparent space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] text-zinc-400 font-mono">
+        <div className="flex items-center justify-between text-[11px] text-mute font-mono">
           <div className="flex items-center gap-1">
             <Eye className="w-3 h-3" aria-hidden />
             <span>Canlı oynatıcı</span>
           </div>
           <span>{below ? 'Video altında' : subStyle.position === 'top' ? 'Video üstünde · üst' : 'Video üstünde'}</span>
         </div>
-        <div className="rounded-xl overflow-hidden border border-[#2a2e38] bg-[#0c0e12] shadow-[0_8px_24px_rgba(0,0,0,0.35)]">
-          <div className="flex items-center justify-between px-2.5 h-6 bg-[#14161c] text-[10px] text-zinc-500">
+        <div className="rounded-xl overflow-hidden border border-line bg-canvas shadow-[0_8px_24px_rgba(12,16,24,0.55)]">
+          <div className="flex items-center justify-between px-2.5 h-6 bg-raised text-[10px] text-faint">
             <span>Ders önizleme</span>
             <span className="font-mono tabular-nums">3:21 / 12:08</span>
           </div>
@@ -422,19 +422,19 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               </div>
             </div>
           )}
-          <div className="h-1 bg-[#1a1c22]">
-            <div className="h-full w-[28%] bg-blue-500/80" />
+          <div className="h-1 bg-inset">
+            <div className="h-full w-[28%] bg-brand/80" />
           </div>
         </div>
         {look.reducedTransparency && subStyle.blur && !below && (
-          <p className="text-[10px] text-amber-400/90">Sistem saydamlığı kapalı — cam kapalı.</p>
+          <p className="text-[10px] text-warn-fg">Sistem saydamlığı kapalı — cam kapalı.</p>
         )}
       </div>
       </div>
 
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-3">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-3">
         <div className="flex items-center justify-between">
-          <div className="text-xs font-semibold text-zinc-300">Görünüm</div>
+          <div className="text-xs font-semibold text-ink">Görünüm</div>
           <button
             type="button"
             onClick={() =>
@@ -451,7 +451,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 edgeColor: subStyle.edgeColor,
               })
             }
-            className="text-[11px] text-zinc-400 hover:text-zinc-200 min-h-8 px-2 rounded border border-[#272a32] focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="text-[11px] text-mute hover:text-ink min-h-8 px-2 rounded border border-line focus-visible:ring-2 focus-visible:ring-brand-ring"
           >
             Sıfırla
           </button>
@@ -461,10 +461,10 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           <>
         <div className="space-y-1">
           <div className="flex items-center justify-between text-xs">
-            <label htmlFor="bg-opacity" className="text-zinc-300 font-medium">
+            <label htmlFor="bg-opacity" className="text-ink font-medium">
               Kutu şeffaflığı
             </label>
-            <span className="font-mono text-[11px] text-zinc-400">%{subStyle.bgOpacity}</span>
+            <span className="font-mono text-[11px] text-mute">%{subStyle.bgOpacity}</span>
           </div>
           <input
             id="bg-opacity"
@@ -478,8 +478,8 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           />
         </div>
 
-        <div className="flex items-center justify-between p-2 min-h-8 bg-[#16181e] rounded-lg border border-[#20232a]">
-          <span className="text-xs font-medium text-zinc-300" id="blur-label">
+        <div className="flex items-center justify-between p-2 min-h-8 bg-inset rounded-lg border border-line">
+          <span className="text-xs font-medium text-ink" id="blur-label">
             Cam bulanıklığı
           </span>
           <label className="relative inline-flex items-center cursor-pointer">
@@ -490,20 +490,20 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               onChange={(e) => updateSubStyle({ blur: e.target.checked })}
               className="sr-only peer"
             />
-            <div className="w-8 h-4 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400" />
+            <div className="w-8 h-4 bg-line rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-ink after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring" />
           </label>
         </div>
 
-        <div className="space-y-1.5 pt-1 border-t border-[#1b1e24]">
-          <span className="text-xs text-zinc-300 font-medium">Kutu rengi</span>
+        <div className="space-y-1.5 pt-1 border-t border-line">
+          <span className="text-xs text-ink font-medium">Kutu rengi</span>
           <ColorSwatches value={look.boxColor} colors={BOX_COLORS} onChange={(c) => updateSubStyle({ boxColor: c })} />
         </div>
           </>
         )}
 
-        <div className="space-y-1.5 pt-1 border-t border-[#1b1e24]">
-          <span className="text-xs text-zinc-300 font-medium">Kenar (CEA-708)</span>
-          <div className="grid grid-cols-5 gap-1 p-1 bg-[#181a1f] rounded-lg border border-[#272a32]">
+        <div className="space-y-1.5 pt-1 border-t border-line">
+          <span className="text-xs text-ink font-medium">Kenar (CEA-708)</span>
+          <div className="grid grid-cols-5 gap-1 p-1 bg-inset rounded-lg border border-line">
             {EDGE_OPTIONS.map((opt) => {
               const selected = look.edge === opt.id;
               const previewShadow = edgeTextShadow(opt.id, subStyle.outlineWidth, look.edgeColor);
@@ -514,8 +514,8 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                   aria-pressed={selected}
                   title={opt.name}
                   onClick={() => updateSubStyle({ edgeStyle: opt.id, textStroke: opt.id !== 'none' })}
-                  className={`flex flex-col items-center gap-0.5 min-h-[52px] py-1.5 px-0.5 rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                    selected ? 'ring-2 ring-blue-400 bg-[#282d38]' : 'hover:bg-[#1e2127] text-zinc-400'
+                  className={`flex flex-col items-center gap-0.5 min-h-[52px] py-1.5 px-0.5 rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
+                    selected ? 'ring-2 ring-brand-ring bg-brand/20' : 'hover:bg-lift text-mute'
                   }`}
                 >
                   <span
@@ -528,7 +528,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                   >
                     Aa
                   </span>
-                  <span className={`text-[9px] leading-tight ${selected ? 'text-white font-medium' : ''}`}>
+                  <span className={`text-[9px] leading-tight ${selected ? 'text-ink font-medium' : ''}`}>
                     {opt.name}
                   </span>
                 </button>
@@ -538,7 +538,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           {look.edge !== 'none' && (
             <>
               <div className="space-y-1.5">
-                <span className="text-xs text-zinc-300 font-medium">Kenar rengi</span>
+                <span className="text-xs text-ink font-medium">Kenar rengi</span>
                 <ColorSwatches
                   value={look.edgeColor}
                   colors={TEXT_COLORS}
@@ -546,7 +546,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 />
               </div>
               <div className="space-y-1">
-                <div className="flex items-center justify-between text-xs text-zinc-400">
+                <div className="flex items-center justify-between text-xs text-mute">
                   <label htmlFor="outline-w">Kalınlık</label>
                   <span className="font-mono">{subStyle.outlineWidth}px</span>
                 </div>
@@ -565,15 +565,15 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           )}
         </div>
 
-        <div className="space-y-1.5 pt-1 border-t border-[#1b1e24]">
-          <span className="text-xs text-zinc-300 font-medium">Hizalama</span>
-          <div className="grid grid-cols-3 gap-1 p-0.5 bg-[#181a1f] rounded-lg border border-[#272a32]">
+        <div className="space-y-1.5 pt-1 border-t border-line">
+          <span className="text-xs text-ink font-medium">Hizalama</span>
+          <div className="grid grid-cols-3 gap-1 p-0.5 bg-inset rounded-lg border border-line">
             {ALIGN_OPTIONS.map((opt) => (
               <button
                 key={opt.id}
                 type="button"
                 onClick={() => updateSubStyle({ align: opt.id })}
-                className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
                   look.align === opt.id ? chipOn : chipOff
                 }`}
               >
@@ -583,17 +583,17 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           </div>
         </div>
 
-        <div className="space-y-1.5 pt-1 border-t border-[#1b1e24]">
-          <label className="text-xs text-zinc-300 font-medium">Yazı tipi</label>
+        <div className="space-y-1.5 pt-1 border-t border-line">
+          <label className="text-xs text-ink font-medium">Yazı tipi</label>
           <FontPicker
             value={SUBTITLE_FONTS.some((f) => f.id === subStyle.fontFamily) ? subStyle.fontFamily : 'Arial'}
             onChange={(id) => updateSubStyle({ fontFamily: id })}
           />
         </div>
 
-        <div className="space-y-3 pt-1 border-t border-[#1b1e24]">
+        <div className="space-y-3 pt-1 border-t border-line">
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-zinc-400">
+            <div className="flex items-center justify-between text-xs text-mute">
               <span>Orijinal ({look.primarySize}px)</span>
             </div>
             <ColorSwatches
@@ -613,7 +613,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           </div>
 
           <div className="space-y-1.5">
-            <div className="flex items-center justify-between text-xs text-zinc-400">
+            <div className="flex items-center justify-between text-xs text-mute">
               <span>Çeviri ({look.secondarySize}px)</span>
             </div>
             <ColorSwatches
@@ -633,13 +633,13 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           </div>
         </div>
 
-        <div className="space-y-1 pt-1 border-t border-[#1b1e24]">
-          <span className="text-xs text-zinc-300 font-medium">Konum</span>
-          <div className="grid grid-cols-2 gap-1 p-0.5 bg-[#181a1f] rounded-lg border border-[#272a32]">
+        <div className="space-y-1 pt-1 border-t border-line">
+          <span className="text-xs text-ink font-medium">Konum</span>
+          <div className="grid grid-cols-2 gap-1 p-0.5 bg-inset rounded-lg border border-line">
             <button
               type="button"
               onClick={() => updateSubStyle({ placement: 'overlay' })}
-              className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
+              className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
                 !below ? chipOn : chipOff
               }`}
             >
@@ -648,7 +648,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
             <button
               type="button"
               onClick={() => updateSubStyle({ placement: 'below' })}
-              className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
+              className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
                 below ? chipOn : chipOff
               }`}
             >
@@ -657,16 +657,16 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
           </div>
           {below ? (
             <>
-              <p className="text-[11px] text-zinc-500 leading-snug pt-0.5">
+              <p className="text-[11px] text-faint leading-snug pt-0.5">
                 Video yukarı kayar. Yazı alttaki kuyuda, resmin üstüne binmez. Tam ekranda da.
               </p>
               <div className="space-y-1 pt-1">
-                <span className="text-xs text-zinc-300 font-medium">Video ölçekleme</span>
-                <div className="grid grid-cols-2 gap-1 p-0.5 bg-[#181a1f] rounded-lg border border-[#272a32]">
+                <span className="text-xs text-ink font-medium">Video ölçekleme</span>
+                <div className="grid grid-cols-2 gap-1 p-0.5 bg-inset rounded-lg border border-line">
                   <button
                     type="button"
                     onClick={() => updateSubStyle({ videoFit: 'cover' })}
-                    className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                    className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
                       (subStyle.videoFit || 'cover') === 'cover' ? chipOn : chipOff
                     }`}
                   >
@@ -675,26 +675,26 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                   <button
                     type="button"
                     onClick={() => updateSubStyle({ videoFit: 'contain' })}
-                    className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
+                    className={`min-h-8 py-1.5 text-xs rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
                       subStyle.videoFit === 'contain' ? chipOn : chipOff
                     }`}
                   >
                     Tam görüntü
                   </button>
                 </div>
-                <p className="text-[11px] text-zinc-500 leading-snug">
+                <p className="text-[11px] text-faint leading-snug">
                   {(subStyle.videoFit || 'cover') === 'cover'
                     ? 'Yan boşluk yok; kenarlar hafif kırpılabilir.'
                     : 'Tüm görüntü görünür; yanlarda şerit çıkabilir.'}
                 </p>
               </div>
               <div className="space-y-2 pt-1">
-                <div className="flex items-center justify-between p-2 min-h-8 bg-[#16181e] rounded-lg border border-[#20232a]">
+                <div className="flex items-center justify-between p-2 min-h-8 bg-inset rounded-lg border border-line">
                   <div className="pr-2">
-                    <span className="text-xs font-medium text-zinc-300" id="dock-ambient-label">
+                    <span className="text-xs font-medium text-ink" id="dock-ambient-label">
                       Videodan kuyu
                     </span>
-                    <p className="text-[11px] text-zinc-500 leading-snug">
+                    <p className="text-[11px] text-faint leading-snug">
                       Kuyu, slaytın alt bandının rengi. Keskin çizgi yok; yumuşak geçiş.
                     </p>
                   </div>
@@ -706,10 +706,10 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                       onChange={(e) => updateSubStyle({ dockAmbient: e.target.checked })}
                       className="sr-only peer"
                     />
-                    <div className="w-8 h-4 bg-zinc-700 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400" />
+                    <div className="w-8 h-4 bg-line rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-ink after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring" />
                   </label>
                 </div>
-                <span className="text-xs text-zinc-300 font-medium">
+                <span className="text-xs text-ink font-medium">
                   {subStyle.dockAmbient !== false ? 'Kuyu perdesi' : 'Kuyu rengi'}
                 </span>
                 <DockColorPresets
@@ -719,10 +719,10 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 />
                 <div className="space-y-1">
                   <div className="flex items-center justify-between text-xs">
-                    <label htmlFor="dock-opacity" className="text-zinc-300 font-medium">
+                    <label htmlFor="dock-opacity" className="text-ink font-medium">
                       Kuyu perdesi
                     </label>
-                    <span className="font-mono text-[11px] text-zinc-400">%{subStyle.dockOpacity ?? 0}</span>
+                    <span className="font-mono text-[11px] text-mute">%{subStyle.dockOpacity ?? 0}</span>
                   </div>
                   <input
                     id="dock-opacity"
@@ -734,7 +734,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                     onChange={(e) => updateSubStyle({ dockOpacity: parseInt(e.target.value, 10) })}
                     className="w-full"
                   />
-                  <p className="text-[11px] text-zinc-500 leading-snug">
+                  <p className="text-[11px] text-faint leading-snug">
                     %0 slaytla aynı renk. %100 seçilen düz renk.
                   </p>
                 </div>
@@ -742,7 +742,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
             </>
           ) : (
             <>
-              <div className="flex items-center justify-between text-xs text-zinc-400 pt-1">
+              <div className="flex items-center justify-between text-xs text-mute pt-1">
                 <label htmlFor="offset-y">Kenar boşluğu</label>
                 <span className="font-mono">{subStyle.offsetY}px</span>
               </div>
@@ -760,8 +760,8 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 <button
                   type="button"
                   onClick={() => updateSubStyle({ position: 'bottom' })}
-                  className={`flex-1 min-h-8 text-xs rounded-md border focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                    subStyle.position !== 'top' ? 'bg-[#282d38] text-white' : 'text-zinc-400 border-[#272a32]'
+                  className={`flex-1 min-h-8 text-xs rounded-md border focus-visible:ring-2 focus-visible:ring-brand-ring ${
+                    subStyle.position !== 'top' ? 'bg-brand/20 text-ink' : 'text-mute border-line'
                   }`}
                 >
                   Alt
@@ -769,15 +769,15 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                 <button
                   type="button"
                   onClick={() => updateSubStyle({ position: 'top' })}
-                  className={`flex-1 min-h-8 text-xs rounded-md border focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                    subStyle.position === 'top' ? 'bg-[#282d38] text-white' : 'text-zinc-400 border-[#272a32]'
+                  className={`flex-1 min-h-8 text-xs rounded-md border focus-visible:ring-2 focus-visible:ring-brand-ring ${
+                    subStyle.position === 'top' ? 'bg-brand/20 text-ink' : 'text-mute border-line'
                   }`}
                 >
                   Üst
                 </button>
               </div>
-              <label className="flex items-center justify-between p-2 min-h-8 bg-[#16181e] rounded-lg border border-[#20232a] mt-1.5">
-                <span className="text-xs font-medium text-zinc-300" id="pause-hover-label">
+              <label className="flex items-center justify-between p-2 min-h-8 bg-inset rounded-lg border border-line mt-1.5">
+                <span className="text-xs font-medium text-ink" id="pause-hover-label">
                   Kelimede duraklat
                 </span>
                 <span className="relative inline-flex items-center cursor-pointer">
@@ -788,7 +788,7 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
                     onChange={(e) => updateSubStyle({ pauseOnHover: e.target.checked })}
                     className="sr-only peer"
                   />
-                  <span className="w-8 h-4 bg-zinc-700 rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-blue-600 peer-focus-visible:ring-2 peer-focus-visible:ring-blue-400" />
+                  <span className="w-8 h-4 bg-line rounded-full peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-ink after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring" />
                 </span>
               </label>
             </>
@@ -796,21 +796,21 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
         </div>
       </div>
 
-      <div className="p-3 bg-[#111317] rounded-xl border border-[#1f2228] space-y-2">
-        <div className="flex items-center justify-between text-xs font-semibold text-zinc-300">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2">
+        <div className="flex items-center justify-between text-xs font-semibold text-ink">
           <span>Mod ve sıra</span>
           <button
             type="button"
             onClick={() => updateSubStyle({ order: subStyle.order === 'target_top' ? 'source_top' : 'target_top' })}
-            className="flex items-center gap-1 text-xs text-zinc-300 bg-[#1e2127] hover:bg-[#282c35] px-2 min-h-8 rounded border border-[#272a32] focus-visible:ring-2 focus-visible:ring-blue-400"
+            className="flex items-center gap-1 text-xs text-ink bg-inset hover:bg-lift px-2 min-h-8 rounded border border-line focus-visible:ring-2 focus-visible:ring-brand-ring"
             title="Sıralamayı değiştir"
           >
-            <ArrowUpDown className="w-3 h-3 text-blue-400" aria-hidden />
+            <ArrowUpDown className="w-3 h-3 text-brand-ring" aria-hidden />
             <span>{subStyle.order === 'target_top' ? 'Çeviri üstte' : 'Orijinal üstte'}</span>
           </button>
         </div>
 
-        <div className="grid grid-cols-3 gap-1.5 p-0.5 bg-[#181a1f] rounded-lg border border-[#272a32]">
+        <div className="grid grid-cols-3 gap-1.5 p-0.5 bg-inset rounded-lg border border-line">
           {(
             [
               { id: 'dual', label: 'Çift' },
@@ -822,8 +822,8 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               key={mode.id}
               type="button"
               onClick={() => updateSubStyle({ layoutMode: mode.id })}
-              className={`min-h-8 py-1.5 text-xs font-medium rounded-md focus-visible:ring-2 focus-visible:ring-blue-400 ${
-                subStyle.layoutMode === mode.id ? 'bg-[#282d38] text-white font-semibold' : 'text-zinc-400 hover:text-zinc-200'
+              className={`min-h-8 py-1.5 text-xs font-medium rounded-md focus-visible:ring-2 focus-visible:ring-brand-ring ${
+                subStyle.layoutMode === mode.id ? 'bg-brand/20 text-ink font-semibold' : 'text-mute hover:text-ink'
               }`}
             >
               {mode.label}
