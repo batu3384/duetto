@@ -7,3 +7,4 @@ dist
 .cursor
 *.log
 Thumbs.db
+.wiki.git

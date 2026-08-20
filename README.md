@@ -65,3 +65,9 @@ public/
 ## License
 
 MIT — see [LICENSE](LICENSE).
+
+## Wiki
+
+Documentation: [GitHub Wiki](https://github.com/batu3384/duetto/wiki) (source in [`wiki/`](wiki/)).
+
+Publish updates: `npm run wiki:sync` (first time: create **Home** page on GitHub, then sync).
