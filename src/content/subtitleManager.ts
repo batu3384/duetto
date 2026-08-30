@@ -53,6 +53,7 @@ const CAPTION_POLL_INTERVAL_MS = 1000;
 const CAPTION_POLL_ATTEMPTS = 20;
 const CAPTION_FETCH_TIMEOUT_MS = 10000;
 const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
+const TRANSLATE_REQUEST_TIMEOUT_MS = 60000;
 
 interface CaptionSource {
   track: TextTrack | null;
@@ -540,7 +541,6 @@ export class SubtitleManager {
   public nudgeLive(aroundTime: number): void {
     const cue = cueAtTime(this.cues, aroundTime);
     if (!cue || cue.translation?.trim()) return;
-    if (this.activeVideo?.paused) return;
     if (this.liveInflight) {
       this.liveQueued = true;
       return;
@@ -567,11 +567,16 @@ export class SubtitleManager {
       this.setTranslationHint(null);
       return;
     }
+    const requestId = this.translateReq;
+    const lectureId = this.currentLectureId;
     if (!needsTranslation(settings)) {
+      const patches = this.cues
+        .filter((cue) => !cue.translation?.trim())
+        .map((cue) => ({ id: cue.id, translation: cue.text }));
+      this.applyTranslationPatches(patches, { lectureId, requestId });
       this.setTranslationHint(null);
       return;
     }
-    if (this.activeVideo?.paused) return;
     if (!settings.geminiKeyConfigured) {
       this.setTranslationHint('Gemini anahtarı gerekli — uzantı simgesi → Gemini');
       return;
@@ -584,8 +589,6 @@ export class SubtitleManager {
     this.liveInflight = true;
     this.isTranslating = true;
     this.setTranslationHint(null);
-    const requestId = this.translateReq;
-    const lectureId = this.currentLectureId;
     try {
       const response = await this.sendTranslate(
         windowCues,
@@ -614,27 +617,47 @@ export class SubtitleManager {
     const lectureId = this.currentLectureId;
     const requestId = this.translateReq;
     return new Promise((resolve) => {
-      chrome.runtime.sendMessage(
-        {
-          type: 'TRANSLATE_CUES',
-          payload: {
-            cues,
-            aroundTime,
-            lectureId,
-            requestId,
-            priority: 'live',
-            sourceFingerprint: this.sourceFingerprint,
-            translationFingerprint,
+      let settled = false;
+      const finish = (response: { success: boolean; cues?: SubtitleCue[]; error?: string }) => {
+        if (settled) return;
+        settled = true;
+        window.clearTimeout(timeout);
+        resolve(response);
+      };
+      const timeout = window.setTimeout(() => {
+        finish({
+          success: false,
+          error: 'Gemini çeviri hatası: yanıt vermedi. Gemini sekmesinden bağlantıyı test edin.',
+        });
+      }, TRANSLATE_REQUEST_TIMEOUT_MS);
+      try {
+        chrome.runtime.sendMessage(
+          {
+            type: 'TRANSLATE_CUES',
+            payload: {
+              cues,
+              aroundTime,
+              lectureId,
+              requestId,
+              priority: 'live',
+              sourceFingerprint: this.sourceFingerprint,
+              translationFingerprint,
+            },
           },
-        },
-        (res) => {
-          if (chrome.runtime.lastError) {
-            resolve({ success: false, error: chrome.runtime.lastError.message });
-            return;
+          (res) => {
+            if (chrome.runtime.lastError) {
+              finish({ success: false, error: chrome.runtime.lastError.message });
+              return;
+            }
+            finish(res || { success: false });
           }
-          resolve(res || { success: false });
-        }
-      );
+        );
+      } catch (error) {
+        finish({
+          success: false,
+          error: error instanceof Error ? error.message : 'Gemini çeviri bağlantısı kurulamadı.',
+        });
+      }
     });
   }
 
@@ -646,9 +669,9 @@ export class SubtitleManager {
       const byId = new Map(response.cues.filter((c) => c.translation).map((c) => [c.id, c.translation as string]));
       if (byId.size) {
         this.applyTranslationPatches([...byId].map(([id, translation]) => ({ id, translation })), meta);
+        this.setTranslationHint(null);
+        return;
       }
-      this.setTranslationHint(null);
-      return;
     }
     if (cueTranslationCoverage(this.cues) > 0) {
       this.setTranslationHint(null);
@@ -659,7 +682,11 @@ export class SubtitleManager {
       const msg = userTranslationError(response.error);
       this.setTranslationHint(msg);
       shadowOverlay.showToast(msg, 5000);
+      return;
     }
+    const msg = 'Gemini çeviri hatası: geçerli yanıt alınamadı. Gemini sekmesinden bağlantıyı test edin.';
+    this.setTranslationHint(msg);
+    shadowOverlay.showToast(msg, 5000);
   }
 
   private convertTextTrackToCues(track: TextTrack): SubtitleCue[] {

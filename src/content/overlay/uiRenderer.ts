@@ -54,7 +54,7 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   const hasKey = keyIsConfigured(settings);
   if (hint) {
     const isError =
-      /gerekli|geçersiz|kotası|istek sınırı|başarısız|hata|izni yok|bulunamadı/i.test(hint) || !hasKey;
+      /gerekli|geçersiz|kotası|istek sınırı|başarısız|hata|yanıt alınamadı|yanıt vermedi|izni yok|bulunamadı/i.test(hint) || !hasKey;
     return { text: hint, isError };
   }
   if (!hasKey) {
@@ -63,7 +63,7 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   if (subtitleManager.isTranslatingNow()) {
     return { text: 'Çeviri yapılıyor…', isError: false };
   }
-  return { text: 'Çeviri bekleniyor…', isError: false };
+  return { text: '', isError: false };
 }
 
 function translatePhraseViaBg(text: string, targetLang: string): Promise<string> {
@@ -192,11 +192,13 @@ export class UIRenderer {
       translationBlock = `<div class="sub-secondary" style="font-size:${look.secondarySize}px;color:${look.secondaryColor};${typeStyle}">${safeTranslation}</div>`;
     } else if (layoutMode !== 'source_only') {
       const pending = pendingTranslationMessage(this.settings);
-      const pendingClass = pending.isError ? 'sub-error' : '';
-      const pendingColor = pending.isError ? '#ecc8c8' : look.secondaryColor;
-      const pendingRole = pending.isError ? 'alert' : 'status';
-      const pendingLive = pending.isError ? 'assertive' : 'polite';
-      translationBlock = `<div class="sub-secondary sub-pending ${pendingClass}" role="${pendingRole}" aria-live="${pendingLive}" style="font-size:${look.secondarySize}px;color:${pendingColor};${typeStyle}">${escapeHtml(pending.text)}</div>`;
+      if (pending.text) {
+        const pendingClass = pending.isError ? 'sub-error' : '';
+        const pendingColor = pending.isError ? '#ecc8c8' : look.secondaryColor;
+        const pendingRole = pending.isError ? 'alert' : 'status';
+        const pendingLive = pending.isError ? 'assertive' : 'polite';
+        translationBlock = `<div class="sub-secondary sub-pending ${pendingClass}" role="${pendingRole}" aria-live="${pendingLive}" style="font-size:${look.secondarySize}px;color:${pendingColor};${typeStyle}">${escapeHtml(pending.text)}</div>`;
+      }
     }
 
     let contentHtml = '';
