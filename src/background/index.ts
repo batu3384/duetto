@@ -1,5 +1,6 @@
 import { applySettingsCache, getSettings, SECRET_KEY, SETTINGS_KEY, senderMayReadSecrets, settingsForPage, stashGeminiKeyFromSettingsBlob } from '../services/storage';
 import { testGeminiPipeline, translateCues, translatePhrase } from '../services/translator';
+import { translationJobKey } from '../services/translator/jobKey';
 import { SubtitleCue } from '../types';
 import type { TranslationPatch } from '../services/translator';
 
@@ -24,7 +25,71 @@ function pingTab(tabId: number | undefined, message: Record<string, unknown>): v
   });
 }
 
-let restAbort: AbortController | null = null;
+type TranslationResponse = { success: boolean; cues?: SubtitleCue[]; error?: string };
+type TranslationSubscriber = {
+  tabId: number | undefined;
+  payload: TranslatePayload;
+  sendResponse: (response: TranslationResponse) => void;
+};
+type TranslatePayload = {
+  cues?: SubtitleCue[];
+  aroundTime?: number;
+  lectureId?: string;
+  requestId?: number;
+  priority?: 'live' | 'rest';
+  sourceFingerprint?: string;
+  translationFingerprint?: string;
+};
+type TranslationJob = {
+  key: string | null;
+  abort: AbortController;
+  subscribers: TranslationSubscriber[];
+};
+
+const translationJobs = new Map<string, TranslationJob>();
+const tabTranslationJobs = new Map<number, TranslationJob>();
+
+function detachTabFromTranslationJob(tabKey: number): void {
+  const job = tabTranslationJobs.get(tabKey);
+  if (!job) return;
+  const remaining = job.subscribers.filter((subscriber) => {
+    const subscriberKey = typeof subscriber.tabId === 'number' ? subscriber.tabId : -1;
+    return subscriberKey !== tabKey;
+  });
+  for (const subscriber of job.subscribers) {
+    const subscriberKey = typeof subscriber.tabId === 'number' ? subscriber.tabId : -1;
+    if (subscriberKey === tabKey) {
+      subscriber.sendResponse({
+        success: true,
+        cues: Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
+      });
+    }
+  }
+  job.subscribers = remaining;
+  tabTranslationJobs.delete(tabKey);
+  if (!job.subscribers.length) job.abort.abort();
+}
+
+function respondToSubscribers(job: TranslationJob, responseFor: (subscriber: TranslationSubscriber) => TranslationResponse): void {
+  for (const subscriber of job.subscribers) {
+    subscriber.sendResponse(responseFor(subscriber));
+  }
+}
+
+function translatedCuesForSubscriber(
+  sourceCues: SubtitleCue[],
+  translatedCues: SubtitleCue[]
+): SubtitleCue[] {
+  const translations = new Map(
+    translatedCues
+      .filter((cue) => typeof cue.translation === 'string' && cue.translation.trim())
+      .map((cue) => [cue.id, cue.translation as string])
+  );
+  return sourceCues.map((cue) => {
+    const translation = translations.get(cue.id);
+    return translation ? { ...cue, translation } : cue;
+  });
+}
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'TRANSLATE_CUES') {
@@ -105,40 +170,88 @@ async function handleTranslateRequest(
     lectureId?: string;
     requestId?: number;
     priority?: 'live' | 'rest';
+    sourceFingerprint?: string;
+    translationFingerprint?: string;
   },
   tabId: number | undefined,
-  sendResponse: (response: { success: boolean; cues?: SubtitleCue[]; error?: string }) => void
+  sendResponse: (response: TranslationResponse) => void
 ) {
-  const priority = payload?.priority === 'live' ? 'live' : 'rest';
-  if (priority === 'live') restAbort?.abort();
-  const abort = new AbortController();
-  if (priority === 'rest') restAbort = abort;
+  const typedPayload = payload as TranslatePayload;
+  const abortKey = typeof tabId === 'number' ? tabId : -1;
+  const key = translationJobKey(typedPayload);
+  const existing = key ? translationJobs.get(key) : undefined;
+  if (existing && !existing.abort.signal.aborted) {
+    existing.subscribers.push({ tabId, payload: typedPayload, sendResponse });
+    tabTranslationJobs.set(abortKey, existing);
+    return;
+  }
+
+  detachTabFromTranslationJob(abortKey);
+  const job: TranslationJob = {
+    key,
+    abort: new AbortController(),
+    subscribers: [{ tabId, payload: typedPayload, sendResponse }],
+  };
+  if (key) translationJobs.set(key, job);
+  tabTranslationJobs.set(abortKey, job);
 
   try {
-    const cues = Array.isArray(payload?.cues) ? payload.cues : [];
+    const cues = Array.isArray(typedPayload?.cues) ? typedPayload.cues : [];
     const settings = await getSettings({ fresh: true });
-    const lectureId = typeof payload?.lectureId === 'string' ? payload.lectureId : '';
-    const requestId = typeof payload?.requestId === 'number' ? payload.requestId : 0;
-    const aroundTime = typeof payload?.aroundTime === 'number' && Number.isFinite(payload.aroundTime) ? payload.aroundTime : 0;
+    const lectureId = typeof typedPayload?.lectureId === 'string' ? typedPayload.lectureId : '';
+    const requestId = typeof typedPayload?.requestId === 'number' ? typedPayload.requestId : 0;
+    const aroundTime =
+      typeof typedPayload?.aroundTime === 'number' && Number.isFinite(typedPayload.aroundTime)
+        ? typedPayload.aroundTime
+        : 0;
     const translatedCues = await translateCues(cues, settings, (done, total) => {
-      pingTab(tabId, { type: 'TRANSLATE_PROGRESS', done, total, lectureId, requestId });
+      for (const subscriber of job.subscribers) {
+        pingTab(subscriber.tabId, {
+          type: 'TRANSLATE_PROGRESS',
+          done,
+          total,
+          lectureId,
+          requestId: typeof subscriber.payload.requestId === 'number' ? subscriber.payload.requestId : 0,
+        });
+      }
     }, {
       aroundTime,
-      abort: abort.signal,
+      abort: job.abort.signal,
       onBatch: (patches: TranslationPatch[]) => {
-        pingTab(tabId, { type: 'TRANSLATE_PARTIAL', patches, lectureId, requestId });
+        for (const subscriber of job.subscribers) {
+          pingTab(subscriber.tabId, {
+            type: 'TRANSLATE_PARTIAL',
+            patches,
+            lectureId,
+            requestId: typeof subscriber.payload.requestId === 'number' ? subscriber.payload.requestId : 0,
+          });
+        }
       },
     });
-    sendResponse({ success: true, cues: translatedCues });
+    respondToSubscribers(job, (subscriber) => ({
+      success: true,
+      cues: translatedCuesForSubscriber(
+        Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
+        translatedCues
+      ),
+    }));
   } catch (error: unknown) {
     const err = error as { name?: string; message?: string };
-    if (err?.name === 'AbortError' || abort.signal.aborted) {
-      sendResponse({ success: true, cues: Array.isArray(payload?.cues) ? payload.cues : [] });
+    if (err?.name === 'AbortError' || job.abort.signal.aborted) {
+      respondToSubscribers(job, (subscriber) => ({
+        success: true,
+        cues: Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
+      }));
       return;
     }
     console.error('[Duetto] Translation error:', err?.message || 'Translation failed');
-    sendResponse({ success: false, error: err?.message || 'Translation failed' });
+    respondToSubscribers(job, () => ({ success: false, error: err?.message || 'Translation failed' }));
   } finally {
-    if (priority === 'rest' && restAbort === abort) restAbort = null;
+    if (job.key && translationJobs.get(job.key) === job) {
+      translationJobs.delete(job.key);
+    }
+    for (const [tab, activeJob] of tabTranslationJobs) {
+      if (activeJob === job) tabTranslationJobs.delete(tab);
+    }
   }
 }

@@ -190,14 +190,11 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
   const { subStyle } = settings;
   const look = captionLook(subStyle);
 
-  const retrigger = () => sendToUdemyTab({ type: 'TRIGGER_TRANSLATE' });
-
   const handleSwapLanguages = () => {
     onChange({
       sourceLang: settings.targetLang,
       targetLang: settings.sourceLang,
     });
-    retrigger();
   };
 
   const updateSubStyle = (styleUpdate: Partial<typeof subStyle>) => {
@@ -308,7 +305,6 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               value={settings.sourceLang}
               onChange={(e) => {
                 onChange({ sourceLang: e.target.value });
-                retrigger();
               }}
               className={fieldClass}
             >
@@ -339,7 +335,6 @@ export const SubtitlesTab: React.FC<Props> = ({ settings, onChange }) => {
               value={settings.targetLang}
               onChange={(e) => {
                 onChange({ targetLang: e.target.value });
-                retrigger();
               }}
               className={`${fieldClass} border-brand/40`}
             >

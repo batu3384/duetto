@@ -42,7 +42,7 @@ npm run build   # tsc + vite production build
 1. Open a lecture with captions (`CC` on in Udemy player).
 2. Click the Duetto toolbar icon → **Gemini** tab → paste API key → **Test**.
 3. **Altyazı** tab → pick source/target language, enable **Çift Altyazı** in the header.
-4. Play the video; translation lines appear on the live window + background batches.
+4. Play the video; translation lines appear for the current live window as playback advances.
 
 ## Icons
 

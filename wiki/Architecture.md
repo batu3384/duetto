@@ -47,11 +47,13 @@ Chrome **Manifest V3** extension. No backend server — settings, notes, and tra
 
 ## Translation pipeline
 
-1. Content loads VTT cues from Udemy track URLs.
-2. **Live window** (~12 cues around playhead) translates first; user sees updates quickly.
-3. **Rest queue** batches remaining cues via service worker → Gemini.
-4. Partial results return as `TRANSLATE_PARTIAL` patches keyed by cue id.
-5. Term-lock + custom protected terms skip glossary rewrites for technical words.
+1. Content selects the source-language `TextTrack`, preferring Udemy’s currently showing track and never using an unrelated first-track fallback.
+2. Cues load from that track or its matching `<track>` URL; unrelated performance-resource VTT files are not trusted.
+3. **Live window** (up to 12 cues around playhead) translates only while video is playing and dual subtitles are enabled.
+4. Identical live windows in multiple tabs share one service-worker Gemini job.
+5. Partial results return as `TRANSLATE_PARTIAL` patches keyed by cue id, lecture id, and request id.
+6. Translation stops on quota exhaustion for a cooldown period; it does not retry 429 responses.
+7. Term-lock + custom protected terms skip glossary rewrites for technical words.
 
 ## Storage keys
 
@@ -60,9 +62,10 @@ Chrome **Manifest V3** extension. No backend server — settings, notes, and tra
 | `duetto_settings` | Public settings (no API key blob) | All contexts |
 | `duetto_secret` | `{ geminiApiKey }` | Popup + SW only |
 | `duetto_notes` | Lecture notes | Popup |
-| `duetto_tx_*` | Transcript cache per lecture/lang pair | Content + popup |
+| `duetto_tx_*` | Transcript cache per lecture/lang pair plus source/model fingerprints | Content + popup |
 
 Content uses `getPageSettings()` → SW `GET_SETTINGS` so `geminiKeyConfigured` is accurate without exposing the key.
+Active caption cache requires matching source and translation fingerprints. Records without provenance remain available to Notes search but are not loaded as active captions.
 
 ## Overlay modes
 

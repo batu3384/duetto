@@ -82,7 +82,7 @@ export function parseVTT(vttContent: string): SubtitleCue[] {
       }
 
       const text = cleanVttText(textLines.join(' '));
-      if (text && isRealSubtitleText(text)) {
+      if (Number.isFinite(startTime) && Number.isFinite(endTime) && endTime > startTime && text && isRealSubtitleText(text)) {
         cues.push({
           id: `cue-${cues.length}`,
           startTime,
@@ -267,4 +267,36 @@ export function trackMatchesSource(language: string, label: string, sourceLang: 
   if (src === 'ar') return /arabic|عربي|arap/.test(lab);
   if (src === 'ru') return /russian|русск|rusça/.test(lab);
   return lab.includes(src);
+}
+
+export interface CaptionTrackLike {
+  language?: string;
+  label?: string;
+  mode?: string;
+}
+
+function isAutoCaptionLabel(label: string): boolean {
+  return /\bauto(?:matic)?(?:[- ]generated)?\b|\bmachine\b|\bai\b/.test(label.toLowerCase());
+}
+
+export function selectPreferredCaptionTrack<T extends CaptionTrackLike>(
+  tracks: T[],
+  sourceLang: string
+): T | null {
+  const matching = tracks.filter((track) =>
+    trackMatchesSource(track.language || '', track.label || '', sourceLang)
+  );
+  if (!matching.length) return null;
+
+  return (
+    matching.find((track) => track.mode === 'showing') ||
+    matching.find((track) => !isAutoCaptionLabel(track.label || '')) ||
+    matching[0]
+  );
+}
+
+export function captionSourceFingerprint(track: CaptionTrackLike | null, url = ''): string {
+  const normalize = (value: string | undefined): string => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const identity = [normalize(track?.language), normalize(track?.label), url.trim()].join('|');
+  return identity === '||' ? '' : `v1:${identity}`;
 }

@@ -42,6 +42,7 @@ Threat model for Duetto as a **client-only Chrome extension** (no operator-hoste
 | `generativelanguage.googleapis.com` | Translation | Service worker |
 
 No other third-party analytics endpoints in manifest.
+When translation is enabled, selected caption text is sent to Google Gemini through the service worker. Disable dual subtitles to prevent lecture translation requests.
 
 ## Permissions rationale
 

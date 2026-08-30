@@ -26,6 +26,8 @@ Track execution via [GitHub Issues](https://github.com/batu3384/duetto/issues). 
 | Stale extension context handling | Done | [a5cdb6b](https://github.com/batu3384/duetto/commit/a5cdb6b) |
 | Static codebase audit | Done | `docs/codebase-audit/2026-08-15-1641.md` |
 | GitHub Wiki (source in `wiki/`) | Done | This page |
+| Translation source/cache and quota hardening | Done | Source-track selection, provenance-bound cache, live-only translation, request identity |
+| GitHub Actions check/build gate | Done | `.github/workflows/check.yml` |
 
 ---
 
@@ -33,8 +35,6 @@ Track execution via [GitHub Issues](https://github.com/batu3384/duetto/issues). 
 
 | Item | Status | Notes |
 |------|--------|-------|
-| CA-003 — Rest translation batch ACK | Now | SW must not block on full-lecture `sendResponse`; partial + queue ([audit](https://github.com/batu3384/duetto/blob/main/docs/codebase-audit/2026-08-15-1641.md#ca-003--major--reliability--srcbackgroundindexts)) |
-| CA-005 — CI gate for `npm run check` | Now | Self-check scripts exist; no GitHub Actions workflow yet |
 | CA-002 — Dock `captureStream` validation on Udemy | Now | Manual verify taint/fallback on real MSE lectures |
 
 ---
@@ -74,8 +74,6 @@ gantt
     Wiki source               :done, m4, 2026-08-20, 1d
 
     section Now
-    CA-003 batch ACK          :active, n1, 2026-08-20, 14d
-    CA-005 CI check           :n2, 2026-08-22, 7d
     CA-002 dock validation    :n3, 2026-08-25, 7d
 
     section Next

@@ -8,7 +8,7 @@ Chrome extension for **Udemy** — dual captions (source + translation), Gemini-
 
 - **Dual captions** — original line + target language; term-lock keeps technical terms in English when needed
 - **Subtitle styling** — CEA-708 edges, glass box, dock placement under the video with frame-matched background
-- **Translation** — bring your own [Gemini API key](https://aistudio.google.com/apikey); live window + background batching
+- **Translation** — bring your own [Gemini API key](https://aistudio.google.com/apikey); playback-driven live window translation
 - **Glossary** — hover / click words for quick translation
 - **Notes** — capture timestamp, frame, and both caption lines; export Markdown from the popup
 - **Transcript cache** — search prior lectures; jump to a cue timestamp

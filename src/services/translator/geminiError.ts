@@ -16,3 +16,8 @@ export function explainGeminiError(status: number, body: { error?: { message?: s
   if (/AIza[0-9A-Za-z_-]{8,}/.test(msg)) return `Gemini hata (${status})`;
   return msg || `Gemini hata (${status})`;
 }
+
+export function isGeminiQuotaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  return /429|quota|resource_exhausted|kota/i.test(message);
+}

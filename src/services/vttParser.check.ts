@@ -1,4 +1,6 @@
 import {
+  captionSourceFingerprint,
+  cleanVttText,
   cueAtTime,
   cueTranslationCoverage,
   groupCuesForBatchTranslation,
@@ -9,11 +11,13 @@ import {
   parseBatchTranslation,
   parseLabeledCueLines,
   parseVTT,
+  selectPreferredCaptionTrack,
   stripGeminiFences,
   trackMatchesSource,
   vttTimeToSeconds,
 } from './vttParser.ts';
 import { extractGlossaryTerms } from './translator/glossary.ts';
+import { transcriptTranslationFingerprint } from './db.ts';
 import type { SubtitleCue } from '../types/index.ts';
 
 function assert(cond: unknown, msg: string): void {
@@ -42,6 +46,11 @@ thumb-sprites.jpg#xywh=0,0,1,1
 `;
 const cues = parseVTT(vtt);
 assert(cues.length === 1 && cues[0].text === 'Hello props', 'parse skips sprite cue');
+assert(cleanVttText('<i>Hello</i> &amp; world') === 'Hello & world', 'text entities cleaned');
+assert(
+  parseVTT('WEBVTT\n\n00:00:04.000 --> 00:00:03.000\nInvalid timing\n').length === 0,
+  'invalid timing cue rejected'
+);
 
 const fake: SubtitleCue[] = [
   { id: 'a', startTime: 0, endTime: 1, text: 'one' },
@@ -108,9 +117,51 @@ assert(
   'half coverage'
 );
 
+const translationSettings = {
+  targetLang: 'tr',
+  geminiModel: 'gemini-2.5-flash-lite',
+  geminiTemperature: 0.2,
+  termLockEnabled: true,
+  customProtectedTerms: ['React', 'hook'],
+};
+const translationFingerprint = transcriptTranslationFingerprint(translationSettings);
+assert(
+  translationFingerprint ===
+    transcriptTranslationFingerprint({ ...translationSettings, customProtectedTerms: ['hook', 'React'] }),
+  'translation fingerprint ignores term order'
+);
+assert(
+  translationFingerprint !==
+    transcriptTranslationFingerprint({ ...translationSettings, geminiModel: 'gemini-2.5-flash' }),
+  'translation fingerprint changes with model'
+);
+
 assert(trackMatchesSource('en', 'English', 'en'), 'en track');
 assert(!trackMatchesSource('en', 'English', 'tr'), 'en not stolen for tr');
 assert(trackMatchesSource('tr', 'Türkçe', 'tr'), 'tr label');
+const manualEnglish = { language: 'en', label: 'English', mode: 'hidden' };
+const autoEnglish = { language: 'en', label: 'English (auto-generated)', mode: 'hidden' };
+const showingAutoEnglish = { language: 'en', label: 'English (auto-generated)', mode: 'showing' };
+const turkish = { language: 'tr', label: 'Türkçe', mode: 'showing' };
+assert(
+  selectPreferredCaptionTrack([manualEnglish, showingAutoEnglish, turkish], 'en') === showingAutoEnglish,
+  'showing source track wins'
+);
+assert(
+  selectPreferredCaptionTrack([autoEnglish, manualEnglish], 'en') === manualEnglish,
+  'manual source track wins when none showing'
+);
+assert(selectPreferredCaptionTrack([turkish], 'en') === null, 'unmatched track is not fallback');
+assert(
+  captionSourceFingerprint({ language: 'en', label: 'English', mode: 'hidden' }, '/captions/en.vtt') ===
+    captionSourceFingerprint({ language: 'en', label: 'English', mode: 'showing' }, '/captions/en.vtt'),
+  'source fingerprint ignores display mode'
+);
+assert(
+  captionSourceFingerprint({ language: 'en', label: 'English' }, '/captions/en.vtt') !==
+    captionSourceFingerprint({ language: 'en', label: 'English (auto-generated)' }, '/captions/en.vtt'),
+  'source fingerprint changes with source label'
+);
 
 if (process.exitCode) {
   console.error('self-check failed');

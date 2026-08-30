@@ -2,9 +2,16 @@ import type { SubtitleCue } from '../../types';
 import { buildTranslationSystemPrompt, extractGlossaryTerms } from './glossary';
 import { groupCuesForLiveTranslation, parseBatchTranslation } from '../vttParser';
 import { cleanPhraseTranslation } from './phraseClean';
-import { explainGeminiError } from './geminiError';
+import { explainGeminiError, isGeminiQuotaError } from './geminiError';
 
 export type TranslationPatch = { id: string; translation: string };
+const GEMINI_QUOTA_COOLDOWN_MS = 60_000;
+const GEMINI_QUOTA_MESSAGE = 'Gemini kotası doldu. Birkaç dakika bekle veya AI Studio’da kota kontrol et.';
+let geminiQuotaCooldownUntil = 0;
+
+export function geminiQuotaCooldownActive(now = Date.now()): boolean {
+  return now < geminiQuotaCooldownUntil;
+}
 
 export function geminiGenerateUrl(model: string): string {
   return `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
@@ -31,6 +38,7 @@ async function generateGeminiText(
   abort?: AbortSignal
 ): Promise<string> {
   const timeout = AbortSignal.timeout(25000);
+  if (geminiQuotaCooldownActive()) throw new Error(GEMINI_QUOTA_MESSAGE);
   const signal =
     abort && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, abort]) : timeout;
   const response = await fetch(geminiGenerateUrl(model), {
@@ -44,6 +52,9 @@ async function generateGeminiText(
   });
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
+    if (response.status === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+      geminiQuotaCooldownUntil = Date.now() + GEMINI_QUOTA_COOLDOWN_MS;
+    }
     throw new Error(explainGeminiError(response.status, errData));
   }
   const text = geminiOutputText(await response.json());
@@ -86,6 +97,7 @@ export async function translateWithGemini(
 
   for (const batch of batches) {
     if (abort?.aborted) break;
+    if (geminiQuotaCooldownActive()) throw new Error(GEMINI_QUOTA_MESSAGE);
     const batchTerms = termLockEnabled ? extractGlossaryTerms(batch.cues.map((c) => c.text).join(' ')) : [];
     const allTerms = termLockEnabled ? Array.from(new Set([...batchTerms, ...customTerms])) : [];
     const systemInstruction = buildTranslationSystemPrompt(targetLang, allTerms);
@@ -134,9 +146,11 @@ ${batch.combinedText}`;
         }
         lastErr = err;
         console.error('[Duetto] Gemini batch error:', err);
+        if (isGeminiQuotaError(err)) break;
       }
     }
     if (lastErr) {
+      if (isGeminiQuotaError(lastErr)) throw lastErr;
       lastBatchErr = lastErr;
     } else if (patches.length) {
       onBatch?.(patches);

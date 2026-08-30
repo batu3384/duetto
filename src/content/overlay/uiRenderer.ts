@@ -48,6 +48,8 @@ function wordTokensHtml(
 }
 
 function pendingTranslationMessage(settings: ExtensionSettings): { text: string; isError: boolean } {
+  const sourceError = subtitleManager.getSourceError();
+  if (sourceError) return { text: sourceError, isError: true };
   const hint = subtitleManager.getTranslationHint();
   const hasKey = keyIsConfigured(settings);
   if (hint) {
@@ -124,6 +126,7 @@ export class UIRenderer {
     this.currentCue = cue;
     const container = shadowOverlay.getSubtitleContainer();
     if (!container) return;
+    this.updateSourceStatus();
 
     if (!cue || !this.settings?.dualSubtitlesEnabled) {
       this.releasePause();
@@ -157,6 +160,7 @@ export class UIRenderer {
       cue.id,
       cue.translation || '',
       cue.text,
+      subtitleManager.getSourceLabel(),
       JSON.stringify(subStyle),
       this.settings.termLockEnabled,
       this.settings.customProtectedTerms.join(','),
@@ -188,9 +192,11 @@ export class UIRenderer {
       translationBlock = `<div class="sub-secondary" style="font-size:${look.secondarySize}px;color:${look.secondaryColor};${typeStyle}">${safeTranslation}</div>`;
     } else if (layoutMode !== 'source_only') {
       const pending = pendingTranslationMessage(this.settings);
-      if (pending.isError) {
-        translationBlock = `<div class="sub-secondary sub-pending sub-error" style="font-size:${look.secondarySize}px;color:#ecc8c8;${typeStyle}">${escapeHtml(pending.text)}</div>`;
-      }
+      const pendingClass = pending.isError ? 'sub-error' : '';
+      const pendingColor = pending.isError ? '#ecc8c8' : look.secondaryColor;
+      const pendingRole = pending.isError ? 'alert' : 'status';
+      const pendingLive = pending.isError ? 'assertive' : 'polite';
+      translationBlock = `<div class="sub-secondary sub-pending ${pendingClass}" role="${pendingRole}" aria-live="${pendingLive}" style="font-size:${look.secondarySize}px;color:${pendingColor};${typeStyle}">${escapeHtml(pending.text)}</div>`;
     }
 
     let contentHtml = '';
@@ -223,7 +229,9 @@ export class UIRenderer {
     }
 
     container.innerHTML = `
-      <div class="sub-box" id="sub-drag-box" style="${boxStyle}">
+      <div class="sub-box" id="sub-drag-box" title="${escapeHtml(
+        subtitleManager.getSourceLabel() ? `Kaynak altyazı: ${subtitleManager.getSourceLabel()}` : ''
+      )}" style="${boxStyle}">
         ${frostHtml}
         <div class="sub-box-inner">${contentHtml}</div>
       </div>
@@ -234,6 +242,16 @@ export class UIRenderer {
     this.ensureHoverLeave(container);
     if (this.holdPause && !container.matches(':hover')) this.releasePause();
     if (!below) this.attachDragListener(container);
+  }
+
+  private updateSourceStatus(): void {
+    const source = shadowOverlay.getToolbarContainer()?.querySelector('.tool-source') as HTMLElement | null;
+    if (!source) return;
+    const label = subtitleManager.getSourceLabel() || 'Kaynak yok';
+    const error = subtitleManager.getSourceError();
+    source.textContent = label;
+    source.title = error || `Kaynak altyazı: ${label}`;
+    source.classList.toggle('source-error', !!error);
   }
 
   private applyPlacement(container: HTMLElement, below: boolean, fromTop: boolean, offset: number): void {
@@ -514,6 +532,8 @@ export class UIRenderer {
     const speed = playerHook.getSpeed().toFixed(2);
     const isDualOn = this.settings?.dualSubtitlesEnabled;
     const below = this.settings?.subStyle.placement === 'below';
+    const sourceLabel = subtitleManager.getSourceLabel() || 'Kaynak yok';
+    const sourceError = subtitleManager.getSourceError();
 
     toolbar.innerHTML = `
       <button type="button" class="tool-btn ${isDualOn ? 'active' : ''}" id="btn-toggle-sub" aria-pressed="${isDualOn ? 'true' : 'false'}" aria-label="Çift altyazı aç kapat" title="Çift Altyazı (D)">
@@ -522,6 +542,9 @@ export class UIRenderer {
       <button type="button" class="tool-btn ${below ? 'active' : ''}" id="btn-dock" aria-pressed="${below ? 'true' : 'false'}" aria-label="Altyazıyı video altına al" title="Konum: ${below ? 'Video altında' : 'Video üstünde'}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"></rect><path d="M3 21h18"></path></svg>
       </button>
+      <span class="tool-source ${sourceError ? 'source-error' : ''}" role="status" aria-live="polite" title="${escapeHtml(
+        sourceError || `Kaynak altyazı: ${sourceLabel}`
+      )}">${escapeHtml(sourceLabel)}</span>
       <span class="tool-sep" aria-hidden="true"></span>
       <button type="button" class="tool-btn tool-txt" id="btn-back" aria-label="5 saniye geri" title="Geri 5s (J)">−5</button>
       <button type="button" class="speed-badge" id="badge-speed" aria-label="Oynatma hızını değiştir" title="Hız değiştir (tıkla). [ ve ] de çalışır">${speed}x</button>

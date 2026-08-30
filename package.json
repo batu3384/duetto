@@ -1,6 +1,6 @@
 {
   "name": "duetto-udemy-extension",
-  "version": "2.17.0",
+  "version": "2.18.0",
   "description": "Duetto — Udemy çift altyazı, Gemini çevirisi, not ve oynatıcı",
   "type": "module",
   "scripts": {

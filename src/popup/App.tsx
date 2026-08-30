@@ -69,7 +69,7 @@ export default function App() {
           </div>
           <div className="flex items-baseline gap-1.5">
             <h1 className="text-sm font-bold tracking-tight text-ink">DUETTO</h1>
-            <span className="text-[11px] font-mono text-mute">v2.17.0</span>
+            <span className="text-[11px] font-mono text-mute">v2.18.0</span>
           </div>
         </div>
 

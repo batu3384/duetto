@@ -380,6 +380,19 @@ export class ShadowOverlayHost {
         background: rgba(255, 255, 255, 0.12);
         margin: 0 2px;
       }
+      .tool-source {
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        color: rgba(232, 235, 242, 0.72);
+        font-size: 9px;
+        font-weight: 600;
+        padding: 0 5px;
+      }
+      .tool-source.source-error {
+        color: #f3b4b4;
+      }
       .tool-btn:focus-visible {
         outline: 2px solid var(--duetto-focus);
         outline-offset: 2px;

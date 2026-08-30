@@ -1,5 +1,5 @@
-import { CourseTranscript, PendingSeek } from '../types';
-import { extensionAlive, isStaleExtensionError } from './storage';
+import type { CourseTranscript, ExtensionSettings, PendingSeek } from '../types/index.ts';
+import { extensionAlive, isStaleExtensionError } from './storage.ts';
 
 const PREFIX = 'duetto_tx_';
 const LEGACY_PREFIX = 'dualis_tx_';
@@ -8,6 +8,22 @@ const LEGACY_SEEK_KEY = 'dualis_pending_seek';
 
 export function transcriptStorageId(lectureId: string, sourceLang: string, targetLang: string): string {
   return `${lectureId}::${sourceLang}::${targetLang}`;
+}
+
+export function transcriptTranslationFingerprint(
+  settings: Pick<ExtensionSettings, 'targetLang' | 'geminiModel' | 'geminiTemperature' | 'termLockEnabled' | 'customProtectedTerms'>
+): string {
+  const terms = settings.termLockEnabled
+    ? Array.from(new Set((settings.customProtectedTerms || []).map((term) => term.trim().toLowerCase()).filter(Boolean))).sort()
+    : [];
+  return [
+    'v1',
+    (settings.targetLang || 'tr').toLowerCase(),
+    settings.geminiModel || '',
+    String(settings.geminiTemperature ?? 0.2),
+    settings.termLockEnabled ? 'terms-on' : 'terms-off',
+    terms.join(','),
+  ].join('|');
 }
 
 function hasStorage(): boolean {

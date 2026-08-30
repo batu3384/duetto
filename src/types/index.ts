@@ -97,6 +97,10 @@ export interface CourseTranscript {
   cues: SubtitleCue[];
   language: string;
   translatedLanguage?: string;
+  /** Identifies caption source; records without it are not trusted for active subtitles. */
+  sourceFingerprint?: string;
+  /** Identifies translation model and glossary settings. */
+  translationFingerprint?: string;
   updatedAt: number;
 }
 

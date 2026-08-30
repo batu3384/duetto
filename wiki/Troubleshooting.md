@@ -26,11 +26,24 @@ Since v2.17+ the extension shows that banner instead of spamming uncaught promis
 
 ---
 
+## Duetto English caption differs from Udemy
+
+Duetto selects the matching source-language track, preferring the track Udemy currently shows. It does not guess with an unrelated track when language metadata is missing.
+
+1. Open **Oynatıcı** → **Altyazıyı yenile**.
+2. Check the toolbar source label (`English`, `English (auto-generated)`, etc.).
+3. Ensure Udemy’s native CC language matches Duetto’s **Kaynak** language.
+4. Refresh the page if the source label says **Kaynak yok**.
+
+Old transcript records without a source fingerprint are ignored for active captions, so stale English cache cannot silently replace the current track.
+
+---
+
 ## Only source line, no translation
 
 - Key not configured → amber banner in **Altyazı** tab.
 - Gemini quota / invalid key → red result on test button; check [Google AI Studio](https://aistudio.google.com/).
-- Very long lecture: rest queue may still be running; scrub timeline to force live window retry.
+- Translation starts only during playback and only for current live window. Move playback forward to translate later cues.
 
 ---
 
