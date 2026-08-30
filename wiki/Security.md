@@ -38,7 +38,7 @@ Threat model for Duetto as a **client-only Chrome extension** (no operator-hoste
 
 | Destination | Purpose | Initiator |
 |-------------|---------|-----------|
-| `*.udemy.com` | VTT / page APIs | Content |
+| `*.udemy.com` / `*.udemycdn.com` | VTT / page APIs | Content + service worker fallback |
 | `generativelanguage.googleapis.com` | Translation | Service worker |
 
 No other third-party analytics endpoints in manifest.
@@ -50,7 +50,7 @@ When translation is enabled, selected caption text is sent to Google Gemini thro
 |------------|-----|
 | `storage` / `unlimitedStorage` | Settings, notes, transcript cache |
 | `activeTab` | Target Udemy tab for popup actions |
-| Udemy host | Content script + caption fetch |
+| Udemy hosts | Content script + caption fetch; CDN fallback is cookie-free |
 | Gemini host | Translation only from SW |
 
 ## Content Security Policy

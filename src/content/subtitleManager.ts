@@ -5,9 +5,11 @@ import {
   isRealSubtitleText,
   cueAtTime,
   cueTranslationCoverage,
+  isCaptionTrack,
   trackMatchesSource,
   selectPreferredCaptionTrack,
   captionSourceFingerprint,
+  selectCaptionResourceUrl,
   liveWindowCues,
 } from '../services/vttParser';
 import { getTranscript, saveTranscript, transcriptStorageId, transcriptTranslationFingerprint } from '../services/db';
@@ -17,10 +19,7 @@ import type { TranslationPatch } from '../services/translator/gemini';
 
 function isValidCaptionTrack(track: TextTrack): boolean {
   if (!track) return false;
-  const kind = (track.kind || '').toLowerCase();
-  if (kind === 'metadata' || kind === 'thumbnails' || kind === 'chapters') {
-    return false;
-  }
+  if (!isCaptionTrack(track)) return false;
   const label = (track.label || '').toLowerCase();
   if (/thumbnail|sprite|storyboard|preview|seek/i.test(label)) {
     return false;
@@ -50,12 +49,59 @@ function cacheLooksTranslated(cues: SubtitleCue[]): boolean {
 }
 
 const SOURCE_ERROR = 'Kaynak altyazı doğrulanamadı. Udemy altyazıyı açıp “Altyazıyı yenile” seçin.';
+const CAPTION_POLL_INTERVAL_MS = 1000;
+const CAPTION_POLL_ATTEMPTS = 20;
+const CAPTION_FETCH_TIMEOUT_MS = 10000;
+const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
 
 interface CaptionSource {
   track: TextTrack | null;
   url: string;
   fingerprint: string;
   label: string;
+}
+
+function trackElementUrl(element: HTMLTrackElement): string {
+  const raw = element.src || element.getAttribute('src') || element.dataset.src || '';
+  if (!raw) return '';
+  try {
+    return new URL(raw, document.baseURI).href;
+  } catch {
+    return '';
+  }
+}
+
+function fetchCaptionVttViaBackground(url: string): Promise<string | null> {
+  return new Promise((resolve) => {
+    try {
+      chrome.runtime.sendMessage({ type: 'FETCH_CAPTION_VTT', url }, (response) => {
+        if (chrome.runtime.lastError || !response?.success || typeof response.text !== 'string') {
+          resolve(null);
+          return;
+        }
+        resolve(response.text);
+      });
+    } catch {
+      resolve(null);
+    }
+  });
+}
+
+async function fetchCaptionText(url: string): Promise<string | null> {
+  try {
+    const sameOrigin = new URL(url, document.baseURI).origin === window.location.origin;
+    const response = await fetch(url, {
+      credentials: sameOrigin ? 'include' : 'omit',
+      signal: AbortSignal.timeout(CAPTION_FETCH_TIMEOUT_MS),
+    });
+    if (response.ok) {
+      const text = await response.text();
+      if (text.length <= MAX_CAPTION_TEXT_LENGTH) return text;
+    }
+  } catch (error) {
+    console.warn('[Duetto] Failed to fetch track src:', error);
+  }
+  return fetchCaptionVttViaBackground(url);
 }
 
 export class SubtitleManager {
@@ -81,6 +127,7 @@ export class SubtitleManager {
   private trackList: TextTrackList | null = null;
   private sourceFingerprint = '';
   private sourceLabel = '';
+  private sourceLoading = false;
   private sourceError: string | null = null;
 
   public onCueChange(listener: (cue: SubtitleCue | null) => void): () => void {
@@ -114,11 +161,15 @@ export class SubtitleManager {
   }
 
   public getSourceLabel(): string {
-    return this.sourceLabel;
+    return this.sourceLabel || (this.sourceLoading ? 'Altyazı aranıyor…' : '');
   }
 
   public getSourceError(): string | null {
     return this.sourceError;
+  }
+
+  public isSourceLoading(): boolean {
+    return this.sourceLoading;
   }
 
   private setTranslationHint(msg: string | null): void {
@@ -170,6 +221,7 @@ export class SubtitleManager {
     this.activeVideo = null;
     this.sourceFingerprint = '';
     this.sourceLabel = '';
+    this.sourceLoading = false;
     this.sourceError = null;
     this.notifyCueChange(null);
   }
@@ -194,6 +246,7 @@ export class SubtitleManager {
     this.currentCue = null;
     this.sourceFingerprint = '';
     this.sourceLabel = '';
+    this.sourceLoading = true;
     this.sourceError = null;
     this.translationHint = null;
     this.notifyCueChange(null);
@@ -231,7 +284,9 @@ export class SubtitleManager {
     const source = this.findCaptionSource(video, sourceLang);
     this.sourceFingerprint = source?.fingerprint || '';
     this.sourceLabel = source?.label || '';
-    this.sourceError = source ? null : SOURCE_ERROR;
+    this.sourceLoading = true;
+    this.sourceError = null;
+    this.notifyCueChange(this.currentCue);
     const storageId = transcriptStorageId(
       this.currentLectureId,
       sourceLang,
@@ -251,59 +306,94 @@ export class SubtitleManager {
         !cached.cues.some((c) => !isRealSubtitleText(c.text))
       ) {
         this.cues = cached.cues;
+        this.sourceLoading = false;
         this.transcriptListeners.forEach((l) => l(this.cues));
         this.updateTime(video.currentTime);
+        this.notifyCueChange(this.currentCue);
         if (cacheLooksTranslated(cached.cues)) return;
         await this.kickTranslate(video.currentTime);
         return;
       }
     }
 
-    const cues = await this.extractAllCues(video);
+    const cues = await this.extractAllCues(video, req);
     if (this.translateReq !== req) return;
     if (cues && cues.length > 0) {
       this.cues = cues;
+      this.sourceLoading = false;
       this.transcriptListeners.forEach((l) => l(this.cues));
       this.updateTime(video.currentTime);
+      this.notifyCueChange(this.currentCue);
       await this.kickTranslate(video.currentTime);
     } else {
       this.startTrackPolling(video);
     }
   }
 
-  private ensureTracksActive(video: HTMLVideoElement): void {
-    if (!video.textTracks) return;
-    for (let i = 0; i < video.textTracks.length; i++) {
-      const track = video.textTracks[i];
-      if (isValidCaptionTrack(track) && track.mode === 'disabled') {
-        track.mode = 'hidden';
-      }
+  private ensureTracksActive(video: HTMLVideoElement, preferred?: TextTrack | null): void {
+    const tracks = preferred
+      ? [preferred]
+      : video.textTracks
+        ? Array.from(video.textTracks).filter(isValidCaptionTrack)
+        : [];
+    for (const track of tracks) {
+      if (isValidCaptionTrack(track) && track.mode === 'disabled') track.mode = 'hidden';
     }
   }
 
-  private async extractAllCues(video: HTMLVideoElement): Promise<SubtitleCue[] | null> {
+  private async extractAllCues(
+    video: HTMLVideoElement,
+    expectedRequestId = this.translateReq
+  ): Promise<SubtitleCue[] | null> {
     const settings = await getPageSettings();
+    if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     const targetSourceLang = (settings.sourceLang || 'en').toLowerCase();
     const source = this.findCaptionSource(video, targetSourceLang);
+    if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     this.sourceFingerprint = source?.fingerprint || '';
     this.sourceLabel = source?.label || '';
-    this.sourceError = source ? null : SOURCE_ERROR;
-    if (!source) return null;
+    this.sourceLoading = true;
+    this.sourceError = null;
 
-    if (source.track?.cues && source.track.cues.length > 0) {
-      const extracted = this.convertTextTrackToCues(source.track);
-      if (extracted.length > 0) return extracted;
-    }
+    if (source) {
+      this.ensureTracksActive(video, source.track);
+      if (source.track?.cues && source.track.cues.length > 0) {
+        const extracted = this.convertTextTrackToCues(source.track);
+        if (extracted.length > 0) return extracted;
+      }
 
-    if (source.url) {
-      try {
-        const res = await fetch(source.url);
-        if (res.ok) {
-          const parsed = parseVTT(await res.text());
+      if (source.url) {
+        const vttText = await fetchCaptionText(source.url);
+        if (vttText) {
+          const parsed = parseVTT(vttText);
           if (parsed.length > 0) return parsed;
         }
-      } catch (e) {
-        console.warn('[Duetto] Failed to fetch track src:', e);
+      }
+    }
+
+    let resourceUrls: string[] = [];
+    try {
+      resourceUrls = performance
+        .getEntriesByType('resource')
+        .map((entry) => (entry as PerformanceResourceTiming).name);
+    } catch {
+      resourceUrls = [];
+    }
+    const resourceUrl = selectCaptionResourceUrl(resourceUrls, targetSourceLang);
+    if (resourceUrl && (!source || !source.url)) {
+      const resourceText = await fetchCaptionText(resourceUrl);
+      if (resourceText) {
+        const parsed = parseVTT(resourceText);
+        if (parsed.length > 0) {
+          if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
+          const label = source?.label || `${targetSourceLang.toUpperCase()} (network)`;
+          this.sourceLabel = label;
+          this.sourceFingerprint = captionSourceFingerprint(
+            { language: targetSourceLang, label },
+            resourceUrl
+          );
+          return parsed;
+        }
       }
     }
 
@@ -311,9 +401,8 @@ export class SubtitleManager {
   }
 
   private findCaptionSource(video: HTMLVideoElement, sourceLang: string): CaptionSource | null {
-    this.ensureTracksActive(video);
     const trackElements = Array.from(video.querySelectorAll('track')).filter(
-      (el) => el.kind === 'captions' || el.kind === 'subtitles'
+      (el) => isCaptionTrack(el)
     );
     const validTracks = video.textTracks
       ? Array.from(video.textTracks).filter(isValidCaptionTrack)
@@ -324,7 +413,7 @@ export class SubtitleManager {
       const trackElement = trackElements.find((el) => el.track === matchingTrack) || null;
       const language = matchingTrack.language || trackElement?.srclang || '';
       const label = matchingTrack.label || trackElement?.label || language || 'Kaynak altyazı';
-      const url = trackElement?.src || '';
+      const url = trackElement ? trackElementUrl(trackElement) : '';
       return {
         track: matchingTrack,
         url,
@@ -341,8 +430,8 @@ export class SubtitleManager {
     const label = trackElement.label || language || 'Kaynak altyazı';
     return {
       track: trackElement.track || null,
-      url: trackElement.src || '',
-      fingerprint: captionSourceFingerprint({ language, label }, trackElement.src || ''),
+      url: trackElementUrl(trackElement),
+      fingerprint: captionSourceFingerprint({ language, label }, trackElementUrl(trackElement)),
       label,
     };
   }
@@ -351,31 +440,46 @@ export class SubtitleManager {
     if (this.trackPollInterval) clearInterval(this.trackPollInterval);
     let attempts = 0;
     const pollReq = this.translateReq;
+    let pollBusy = false;
 
     this.trackPollInterval = setInterval(async () => {
+      if (pollBusy) return;
       if (this.translateReq !== pollReq) {
         if (this.trackPollInterval) clearInterval(this.trackPollInterval);
         this.trackPollInterval = null;
         return;
       }
+      pollBusy = true;
       attempts++;
-      this.ensureTracksActive(video);
-      const cues = await this.extractAllCues(video);
-      if (cues && cues.length > 0) {
-        if (this.trackPollInterval) clearInterval(this.trackPollInterval);
-        this.trackPollInterval = null;
-        if (this.translateReq !== pollReq) return;
-        this.cues = cues;
-        this.transcriptListeners.forEach((l) => l(this.cues));
-        this.updateTime(video.currentTime);
-        await this.kickTranslate(video.currentTime);
-      } else if (attempts >= 10) {
-        if (this.trackPollInterval) clearInterval(this.trackPollInterval);
-        this.trackPollInterval = null;
-        this.setTranslationHint(SOURCE_ERROR);
-        shadowOverlay.showToast(SOURCE_ERROR, 6000);
+      try {
+        const cues = await this.extractAllCues(video, pollReq);
+        if (cues && cues.length > 0) {
+          if (this.trackPollInterval) clearInterval(this.trackPollInterval);
+          this.trackPollInterval = null;
+          if (this.translateReq !== pollReq) return;
+          this.cues = cues;
+          this.sourceLoading = false;
+          this.sourceError = null;
+          this.transcriptListeners.forEach((l) => l(this.cues));
+          this.updateTime(video.currentTime);
+          this.notifyCueChange(this.currentCue);
+          await this.kickTranslate(video.currentTime);
+        } else if (
+          attempts >= CAPTION_POLL_ATTEMPTS &&
+          this.translateReq === pollReq &&
+          this.activeVideo === video
+        ) {
+          if (this.trackPollInterval) clearInterval(this.trackPollInterval);
+          this.trackPollInterval = null;
+          this.sourceLoading = false;
+          this.sourceError = SOURCE_ERROR;
+          this.setTranslationHint(SOURCE_ERROR);
+          shadowOverlay.showToast(SOURCE_ERROR, 6000);
+        }
+      } finally {
+        pollBusy = false;
       }
-    }, 1000);
+    }, CAPTION_POLL_INTERVAL_MS);
   }
 
   public applyTranslationPatches(patches: TranslationPatch[], meta?: { lectureId?: string; requestId?: number }): void {

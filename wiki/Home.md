@@ -5,7 +5,7 @@
 | | |
 |---|---|
 | **Repo** | [batu3384/duetto](https://github.com/batu3384/duetto) |
-| **Version** | 2.18.0 |
+| **Version** | 2.18.1 |
 | **License** | MIT |
 
 ## Documentation

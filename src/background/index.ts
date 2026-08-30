@@ -25,6 +25,60 @@ function pingTab(tabId: number | undefined, message: Record<string, unknown>): v
   });
 }
 
+function isUdemyCaptionUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    const hostname = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      (hostname === 'udemy.com' ||
+        hostname.endsWith('.udemy.com') ||
+        hostname === 'udemycdn.com' ||
+        hostname.endsWith('.udemycdn.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+const CAPTION_FETCH_TIMEOUT_MS = 10000;
+const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
+
+async function handleCaptionFetch(
+  rawUrl: unknown,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: { success: boolean; text?: string }) => void
+): Promise<void> {
+  if (
+    typeof sender.tab?.id !== 'number' ||
+    !isUdemyCaptionUrl(sender.url || '') ||
+    typeof rawUrl !== 'string' ||
+    !isUdemyCaptionUrl(rawUrl)
+  ) {
+    sendResponse({ success: false });
+    return;
+  }
+  try {
+    // Caption URLs are signed by Udemy; never forward session cookies to a CDN URL.
+    const response = await fetch(rawUrl, {
+      credentials: 'omit',
+      signal: AbortSignal.timeout(CAPTION_FETCH_TIMEOUT_MS),
+    });
+    if (!response.ok) {
+      sendResponse({ success: false });
+      return;
+    }
+    const text = await response.text();
+    if (text.length > MAX_CAPTION_TEXT_LENGTH) {
+      sendResponse({ success: false });
+      return;
+    }
+    sendResponse({ success: true, text });
+  } catch {
+    sendResponse({ success: false });
+  }
+}
+
 type TranslationResponse = { success: boolean; cues?: SubtitleCue[]; error?: string };
 type TranslationSubscriber = {
   tabId: number | undefined;
@@ -92,6 +146,11 @@ function translatedCuesForSubscriber(
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'FETCH_CAPTION_VTT') {
+    void handleCaptionFetch(message.url, sender, sendResponse);
+    return true;
+  }
+
   if (message.type === 'TRANSLATE_CUES') {
     handleTranslateRequest(message.payload, sender.tab?.id, sendResponse);
     return true;

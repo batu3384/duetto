@@ -11,6 +11,7 @@ import {
   parseBatchTranslation,
   parseLabeledCueLines,
   parseVTT,
+  selectCaptionResourceUrl,
   selectPreferredCaptionTrack,
   stripGeminiFences,
   trackMatchesSource,
@@ -33,6 +34,7 @@ assert(!isRealSubtitleText('thumb-sprites.jpg#xywh=1,2,3,4'), 'sprite text rejec
 assert(isRealSubtitleText('Hello world'), 'dialogue accepted');
 assert(Math.abs(vttTimeToSeconds('00:01:02.500') - 62.5) < 0.001, 'hms time');
 assert(Math.abs(vttTimeToSeconds('01:02.500') - 62.5) < 0.001, 'ms time');
+assert(Number.isNaN(vttTimeToSeconds('00:61.000')), 'invalid seconds rejected');
 
 const vtt = `WEBVTT
 
@@ -141,8 +143,11 @@ assert(!trackMatchesSource('en', 'English', 'tr'), 'en not stolen for tr');
 assert(trackMatchesSource('tr', 'Türkçe', 'tr'), 'tr label');
 const manualEnglish = { language: 'en', label: 'English', mode: 'hidden' };
 const autoEnglish = { language: 'en', label: 'English (auto-generated)', mode: 'hidden' };
-const showingAutoEnglish = { language: 'en', label: 'English (auto-generated)', mode: 'showing' };
-const turkish = { language: 'tr', label: 'Türkçe', mode: 'showing' };
+const showingAutoEnglish = { language: 'en', label: 'English (auto-generated)', mode: 'showing', kind: 'captions' };
+const turkish = { language: 'tr', label: 'Türkçe', mode: 'showing', kind: 'captions' };
+const descriptionEnglish = { language: 'en', label: 'English description', mode: 'hidden', kind: 'descriptions' };
+manualEnglish.kind = 'captions';
+autoEnglish.kind = 'captions';
 assert(
   selectPreferredCaptionTrack([manualEnglish, showingAutoEnglish, turkish], 'en') === showingAutoEnglish,
   'showing source track wins'
@@ -151,6 +156,10 @@ assert(
   selectPreferredCaptionTrack([autoEnglish, manualEnglish], 'en') === manualEnglish,
   'manual source track wins when none showing'
 );
+assert(
+  selectPreferredCaptionTrack([descriptionEnglish, manualEnglish], 'en') === manualEnglish,
+  'description track is excluded'
+);
 assert(selectPreferredCaptionTrack([turkish], 'en') === null, 'unmatched track is not fallback');
 assert(
   captionSourceFingerprint({ language: 'en', label: 'English', mode: 'hidden' }, '/captions/en.vtt') ===
@@ -158,9 +167,34 @@ assert(
   'source fingerprint ignores display mode'
 );
 assert(
+  captionSourceFingerprint({ language: 'en', label: 'English' }, '/captions/en.vtt?token=one') ===
+    captionSourceFingerprint({ language: 'en', label: 'English' }, '/captions/en.vtt?token=two'),
+  'source fingerprint does not persist URL tokens'
+);
+assert(
   captionSourceFingerprint({ language: 'en', label: 'English' }, '/captions/en.vtt') !==
     captionSourceFingerprint({ language: 'en', label: 'English (auto-generated)' }, '/captions/en.vtt'),
   'source fingerprint changes with source label'
+);
+assert(
+  selectCaptionResourceUrl(['https://cdn.udemy.com/captions/en-US.vtt'], 'en') ===
+    'https://cdn.udemy.com/captions/en-US.vtt',
+  'language-matched network caption selected'
+);
+assert(
+  selectCaptionResourceUrl(
+    ['https://cdn.udemy.com/captions/en.vtt', 'https://cdn.udemy.com/captions/en-auto.vtt'],
+    'en'
+  ) === null,
+  'ambiguous network captions rejected'
+);
+assert(
+  selectCaptionResourceUrl(['https://cdn.udemy.com/thumb-sprites/en.vtt'], 'en') === null,
+  'sprite network caption rejected'
+);
+assert(
+  selectCaptionResourceUrl(['https://evil.example/captions/en.vtt'], 'en') === null,
+  'external network caption rejected'
 );
 
 if (process.exitCode) {

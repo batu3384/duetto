@@ -251,6 +251,7 @@ export class UIRenderer {
     const error = subtitleManager.getSourceError();
     source.textContent = label;
     source.title = error || `Kaynak altyazı: ${label}`;
+    source.setAttribute('aria-busy', subtitleManager.isSourceLoading() ? 'true' : 'false');
     source.classList.toggle('source-error', !!error);
   }
 
@@ -534,6 +535,7 @@ export class UIRenderer {
     const below = this.settings?.subStyle.placement === 'below';
     const sourceLabel = subtitleManager.getSourceLabel() || 'Kaynak yok';
     const sourceError = subtitleManager.getSourceError();
+    const sourceLoading = subtitleManager.isSourceLoading();
 
     toolbar.innerHTML = `
       <button type="button" class="tool-btn ${isDualOn ? 'active' : ''}" id="btn-toggle-sub" aria-pressed="${isDualOn ? 'true' : 'false'}" aria-label="Çift altyazı aç kapat" title="Çift Altyazı (D)">
@@ -542,7 +544,7 @@ export class UIRenderer {
       <button type="button" class="tool-btn ${below ? 'active' : ''}" id="btn-dock" aria-pressed="${below ? 'true' : 'false'}" aria-label="Altyazıyı video altına al" title="Konum: ${below ? 'Video altında' : 'Video üstünde'}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"></rect><path d="M3 21h18"></path></svg>
       </button>
-      <span class="tool-source ${sourceError ? 'source-error' : ''}" role="status" aria-live="polite" title="${escapeHtml(
+      <span class="tool-source ${sourceError ? 'source-error' : ''}" role="status" aria-live="polite" aria-busy="${sourceLoading ? 'true' : 'false'}" title="${escapeHtml(
         sourceError || `Kaynak altyazı: ${sourceLabel}`
       )}">${escapeHtml(sourceLabel)}</span>
       <span class="tool-sep" aria-hidden="true"></span>

@@ -17,21 +17,28 @@ export function isRealSubtitleText(text: string): boolean {
  */
 export function vttTimeToSeconds(timeStr: string): number {
   const parts = timeStr.trim().split(':');
+  const parsePart = (part: string): number => {
+    const normalized = part.trim().replace(',', '.');
+    return /^\d+(?:\.\d+)?$/.test(normalized) ? Number(normalized) : Number.NaN;
+  };
   let hours = 0;
   let minutes = 0;
   let secondsWithMs = 0;
 
   if (parts.length === 3) {
-    hours = parseFloat(parts[0]);
-    minutes = parseFloat(parts[1]);
-    secondsWithMs = parseFloat(parts[2].replace(',', '.'));
+    hours = parsePart(parts[0]);
+    minutes = parsePart(parts[1]);
+    secondsWithMs = parsePart(parts[2]);
+    if (minutes > 59 || secondsWithMs >= 60) return Number.NaN;
   } else if (parts.length === 2) {
-    minutes = parseFloat(parts[0]);
-    secondsWithMs = parseFloat(parts[1].replace(',', '.'));
+    minutes = parsePart(parts[0]);
+    secondsWithMs = parsePart(parts[1]);
+    if (secondsWithMs >= 60) return Number.NaN;
   } else {
-    secondsWithMs = parseFloat(parts[0]);
+    secondsWithMs = parsePart(parts[0]);
   }
 
+  if (![hours, minutes, secondsWithMs].every(Number.isFinite)) return Number.NaN;
   return hours * 3600 + minutes * 60 + secondsWithMs;
 }
 
@@ -273,6 +280,12 @@ export interface CaptionTrackLike {
   language?: string;
   label?: string;
   mode?: string;
+  kind?: string;
+}
+
+export function isCaptionTrack(track: CaptionTrackLike): boolean {
+  const kind = (track.kind || '').toLowerCase();
+  return kind === 'captions' || kind === 'subtitles';
 }
 
 function isAutoCaptionLabel(label: string): boolean {
@@ -283,13 +296,15 @@ export function selectPreferredCaptionTrack<T extends CaptionTrackLike>(
   tracks: T[],
   sourceLang: string
 ): T | null {
-  const matching = tracks.filter((track) =>
-    trackMatchesSource(track.language || '', track.label || '', sourceLang)
+  const matching = tracks.filter(
+    (track) =>
+      isCaptionTrack(track) &&
+      trackMatchesSource(track.language || '', track.label || '', sourceLang)
   );
   if (!matching.length) return null;
 
   return (
-    matching.find((track) => track.mode === 'showing') ||
+    matching.find((track) => track.mode?.toLowerCase() === 'showing') ||
     matching.find((track) => !isAutoCaptionLabel(track.label || '')) ||
     matching[0]
   );
@@ -297,6 +312,51 @@ export function selectPreferredCaptionTrack<T extends CaptionTrackLike>(
 
 export function captionSourceFingerprint(track: CaptionTrackLike | null, url = ''): string {
   const normalize = (value: string | undefined): string => (value || '').trim().toLowerCase().replace(/\s+/g, ' ');
-  const identity = [normalize(track?.language), normalize(track?.label), url.trim()].join('|');
+  const normalizeUrl = (raw: string): string => {
+    if (!raw.trim()) return '';
+    try {
+      const parsed = new URL(raw, 'https://duetto.invalid');
+      return `${parsed.origin === 'https://duetto.invalid' ? '' : parsed.origin}${parsed.pathname}`;
+    } catch {
+      return raw.split(/[?#]/, 1)[0];
+    }
+  };
+  const identity = [normalize(track?.language), normalize(track?.label), normalizeUrl(url)].join('|');
   return identity === '||' ? '' : `v1:${identity}`;
+}
+
+export function selectCaptionResourceUrl(urls: string[], sourceLang: string): string | null {
+  const src = (sourceLang || 'en').trim().toLowerCase();
+  if (!src) return null;
+  const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const languageToken = new RegExp(`(?:^|[/?#&=_\\-.])${escaped}(?:$|[/?#&=_\\-.])`, 'i');
+  const isUdemyHost = (url: string): boolean => {
+    try {
+      const hostname = new URL(url).hostname.toLowerCase();
+      return (
+        hostname === 'udemy.com' ||
+        hostname.endsWith('.udemy.com') ||
+        hostname === 'udemycdn.com' ||
+        hostname.endsWith('.udemycdn.com')
+      );
+    } catch {
+      return false;
+    }
+  };
+  const isCaptionUrl = (url: string): boolean =>
+    (/\.vtt(?:$|[?#])|\/(?:captions?|subtitles?)(?:\/|[?#])/i.test(url)) &&
+    !/thumb-sprites|thumbnails|storyboard|preview|sprite/i.test(url);
+  const matches = Array.from(
+    new Set(
+      urls.filter(
+        (url) =>
+          typeof url === 'string' &&
+          /^https?:\/\//i.test(url) &&
+          isUdemyHost(url) &&
+          isCaptionUrl(url) &&
+          (languageToken.test(url) || (src === 'en' && /english/i.test(url)))
+      )
+    )
+  );
+  return matches.length === 1 ? matches[0] : null;
 }

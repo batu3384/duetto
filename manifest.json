@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Duetto — Dual captions for Udemy",
   "short_name": "Duetto",
-  "version": "2.18.0",
+  "version": "2.18.1",
   "description": "Udemy için çift altyazı, bağlamsal Gemini çevirisi, sözlük, not ve hassas oynatıcı.",
   "icons": {
     "16": "icons/icon16.png",
@@ -33,6 +33,7 @@
   "permissions": ["storage", "unlimitedStorage", "activeTab"],
   "host_permissions": [
     "https://*.udemy.com/*",
+    "https://*.udemycdn.com/*",
     "https://generativelanguage.googleapis.com/*"
   ],
   "content_security_policy": {
