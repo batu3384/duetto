@@ -1,16 +1,37 @@
 import type { SubtitleCue } from '../../types';
 import { buildTranslationSystemPrompt, extractGlossaryTerms } from './glossary';
-import { groupCuesForLiveTranslation, parseBatchTranslation } from '../vttParser';
+import { groupCuesForBatchTranslation, orderCuesForLiveTranslation, parseBatchTranslation } from '../vttParser';
 import { cleanPhraseTranslation } from './phraseClean';
-import { explainGeminiError, isGeminiQuotaError } from './geminiError';
+import {
+  classifyGeminiLimit,
+  explainGeminiError,
+  geminiDailyQuotaMessage,
+  geminiRateLimitMessage,
+  isGeminiQuotaError,
+  type GeminiLimitKind,
+} from './geminiError';
 
 export type TranslationPatch = { id: string; translation: string };
-const GEMINI_QUOTA_COOLDOWN_MS = 60_000;
-const GEMINI_QUOTA_MESSAGE = 'Gemini kotası doldu. Birkaç dakika bekle veya AI Studio’da kota kontrol et.';
+const GEMINI_RATE_COOLDOWN_MS = 15_000;
+const GEMINI_DAILY_COOLDOWN_MS = 60_000;
 let geminiQuotaCooldownUntil = 0;
+let geminiCooldownKind: GeminiLimitKind = 'rate';
 
 export function geminiQuotaCooldownActive(now = Date.now()): boolean {
   return now < geminiQuotaCooldownUntil;
+}
+
+function geminiCooldownMessage(now = Date.now()): string {
+  const base =
+    geminiCooldownKind === 'daily' ? geminiDailyQuotaMessage() : geminiRateLimitMessage();
+  const waitSec = Math.max(1, Math.ceil((geminiQuotaCooldownUntil - now) / 1000));
+  return `${base} (${waitSec} sn)`;
+}
+
+function startGeminiCooldown(kind: GeminiLimitKind): void {
+  geminiCooldownKind = kind;
+  const ms = kind === 'daily' ? GEMINI_DAILY_COOLDOWN_MS : GEMINI_RATE_COOLDOWN_MS;
+  geminiQuotaCooldownUntil = Date.now() + ms;
 }
 
 export function geminiGenerateUrl(model: string): string {
@@ -29,16 +50,21 @@ function geminiOutputText(data: { candidates?: { content?: { parts?: { text?: st
   return parts.map((p) => p.text || '').join('').trim();
 }
 
+type GenerateGeminiOpts = { bypassCooldown?: boolean };
+
 async function generateGeminiText(
   apiKey: string,
   model: string,
   temperature: number,
   prompt: string,
   maxOutputTokens: number,
-  abort?: AbortSignal
+  abort?: AbortSignal,
+  opts?: GenerateGeminiOpts
 ): Promise<string> {
   const timeout = AbortSignal.timeout(25000);
-  if (geminiQuotaCooldownActive()) throw new Error(GEMINI_QUOTA_MESSAGE);
+  if (!opts?.bypassCooldown && geminiQuotaCooldownActive()) {
+    throw new Error(geminiCooldownMessage());
+  }
   const signal =
     abort && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, abort]) : timeout;
   const response = await fetch(geminiGenerateUrl(model), {
@@ -52,9 +78,8 @@ async function generateGeminiText(
   });
   if (!response.ok) {
     const errData = await response.json().catch(() => ({}));
-    if (response.status === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
-      geminiQuotaCooldownUntil = Date.now() + GEMINI_QUOTA_COOLDOWN_MS;
-    }
+    const limitKind = classifyGeminiLimit(response.status, errData);
+    if (limitKind) startGeminiCooldown(limitKind);
     throw new Error(explainGeminiError(response.status, errData));
   }
   const text = geminiOutputText(await response.json());
@@ -63,7 +88,9 @@ async function generateGeminiText(
 }
 
 export async function pingGemini(apiKey: string, model: string): Promise<string> {
-  return generateGeminiText(apiKey, model, 0, 'Reply with exactly: OK', 8);
+  return generateGeminiText(apiKey, model, 0, 'Reply with exactly: OK', 8, undefined, {
+    bypassCooldown: true,
+  });
 }
 
 export async function translateWithGemini(
@@ -90,14 +117,14 @@ export async function translateWithGemini(
     return updatedCues;
   }
 
-  const batches = groupCuesForLiveTranslation(pending, aroundTime);
+  const batches = groupCuesForBatchTranslation(orderCuesForLiveTranslation(pending, aroundTime), 12);
   let processedCount = cues.length - pending.length;
   let lastBatchErr: unknown = null;
   onProgress?.(processedCount, cues.length);
 
   for (const batch of batches) {
     if (abort?.aborted) break;
-    if (geminiQuotaCooldownActive()) throw new Error(GEMINI_QUOTA_MESSAGE);
+    if (geminiQuotaCooldownActive()) throw new Error(geminiCooldownMessage());
     const batchTerms = termLockEnabled ? extractGlossaryTerms(batch.cues.map((c) => c.text).join(' ')) : [];
     const allTerms = termLockEnabled ? Array.from(new Set([...batchTerms, ...customTerms])) : [];
     const systemInstruction = buildTranslationSystemPrompt(targetLang, allTerms);
@@ -175,13 +202,14 @@ export async function translatePhraseWithGemini(
   apiKey: string,
   targetLang: string,
   model: string = 'gemini-3.5-flash-lite',
-  temperature: number = 0.2
+  temperature: number = 0.2,
+  opts?: GenerateGeminiOpts
 ): Promise<string> {
   if (!apiKey) throw new Error('Gemini API anahtarı girilmedi.');
   const lang = targetLang.toUpperCase();
   const prompt = `Translate this single lecture word or short phrase into ${lang}. If it is a software term, give a short ${lang} gloss (max 8 words) and keep the term. Reply with only the translation, no quotes.\n\n${text}`;
   const out = cleanPhraseTranslation(
-    await generateGeminiText(apiKey, model, Math.min(temperature, 0.2), prompt, 64)
+    await generateGeminiText(apiKey, model, Math.min(temperature, 0.2), prompt, 64, undefined, opts)
   );
   if (!out) throw new Error('empty gemini phrase');
   return out;

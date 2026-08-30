@@ -34,7 +34,7 @@ function userTranslationError(raw: string): string {
   if (/anahtarı yok|anahtarı girilmedi|api anahtarı/i.test(msg)) {
     return 'Gemini anahtarı gerekli — uzantı simgesi → Gemini';
   }
-  if (/kotası|quota|429/i.test(msg)) return msg;
+  if (/günlük kota|dakikalık istek|kotası|quota|429/i.test(msg)) return msg;
   if (/geçersiz|invalid|403|404/i.test(msg)) return msg;
   return msg.length > 96 ? `${msg.slice(0, 93)}…` : msg;
 }

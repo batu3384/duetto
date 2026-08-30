@@ -54,7 +54,7 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   const hasKey = keyIsConfigured(settings);
   if (hint) {
     const isError =
-      /gerekli|geçersiz|kotası|başarısız|hata|izni yok|bulunamadı/i.test(hint) || !hasKey;
+      /gerekli|geçersiz|kotası|istek sınırı|başarısız|hata|izni yok|bulunamadı/i.test(hint) || !hasKey;
     return { text: hint, isError };
   }
   if (!hasKey) {

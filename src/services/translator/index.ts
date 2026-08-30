@@ -16,7 +16,8 @@ export function requireGeminiKey(settings: ExtensionSettings): string {
 export async function translatePhrase(
   text: string,
   settings: ExtensionSettings,
-  targetLang: string
+  targetLang: string,
+  opts?: { bypassCooldown?: boolean }
 ): Promise<string> {
   const q = text.trim().slice(0, PHRASE_MAX);
   if (!q) return '';
@@ -27,7 +28,8 @@ export async function translatePhrase(
     key,
     tl,
     settings.geminiModel || 'gemini-3.5-flash-lite',
-    typeof settings.geminiTemperature === 'number' ? settings.geminiTemperature : 0.2
+    typeof settings.geminiTemperature === 'number' ? settings.geminiTemperature : 0.2,
+    opts
   );
 }
 
@@ -85,7 +87,7 @@ export async function testGeminiPipeline(settings: ExtensionSettings): Promise<G
 
   await pingGemini(key, model);
   const phraseSrc = 'hook';
-  const phraseTr = await translatePhrase(phraseSrc, settings, targetLang);
+  const phraseTr = await translatePhrase(phraseSrc, settings, targetLang, { bypassCooldown: true });
   if (!phraseTr) throw new Error('Gemini kelime çevirisi boş.');
 
   return {

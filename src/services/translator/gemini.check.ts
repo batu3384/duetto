@@ -1,4 +1,4 @@
-import { explainGeminiError, isGeminiQuotaError } from './geminiError.ts';
+import { explainGeminiError, classifyGeminiLimit, isGeminiQuotaError } from './geminiError.ts';
 import { cleanPhraseTranslation } from './phraseClean.ts';
 import { translationJobKey } from './jobKey.ts';
 import type { SubtitleCue } from '../../types/index.ts';
@@ -20,10 +20,16 @@ assert(
   explainGeminiError(400, { error: { message: 'API key not valid. Please pass a valid API key.' } }).includes('geçersiz'),
   'invalid key mapped'
 );
-assert(explainGeminiError(429, { error: { status: 'RESOURCE_EXHAUSTED' } }).includes('kota'), 'quota mapped');
+assert(explainGeminiError(429, { error: { status: 'RESOURCE_EXHAUSTED' } }).includes('dakikalık'), 'rate limit mapped');
+assert(
+  explainGeminiError(429, { error: { message: 'Quota exceeded for GenerateRequestsPerDay' } }).includes('günlük'),
+  'daily quota mapped'
+);
+assert(classifyGeminiLimit(429, { error: { message: 'requests per minute' } }) === 'rate', 'rpm classified');
 assert(explainGeminiError(404, { error: { status: 'NOT_FOUND' } }).includes('Model'), '404 mapped');
 assert(explainGeminiError(500, { error: { message: 'fail AIzaSyDummyKeyForTestOnly' } }) === 'Gemini hata (500)', 'redact key token');
-assert(isGeminiQuotaError(new Error('Gemini kotası doldu')), 'quota error detected');
+assert(isGeminiQuotaError(new Error('Gemini dakikalık istek sınırı')), 'rate error detected');
+assert(isGeminiQuotaError(new Error('Gemini günlük kotası doldu')), 'daily quota error detected');
 assert(isGeminiQuotaError(new Error('RESOURCE_EXHAUSTED')), 'resource exhaustion detected');
 assert(!isGeminiQuotaError(new Error('Gemini timeout')), 'non-quota error preserved');
 const jobCues: SubtitleCue[] = [{ id: 'cue-1', startTime: 0, endTime: 1, text: 'hello' }];
