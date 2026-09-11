@@ -130,6 +130,17 @@ function respondToSubscribers(job: TranslationJob, responseFor: (subscriber: Tra
   }
 }
 
+function liveTranslationScopeMatch(a: TranslatePayload, b: TranslatePayload): boolean {
+  return (
+    a.priority === 'live' &&
+    b.priority === 'live' &&
+    typeof a.lectureId === 'string' &&
+    a.lectureId === b.lectureId &&
+    a.sourceFingerprint === b.sourceFingerprint &&
+    a.translationFingerprint === b.translationFingerprint
+  );
+}
+
 function translatedCuesForSubscriber(
   sourceCues: SubtitleCue[],
   translatedCues: SubtitleCue[]
@@ -242,6 +253,18 @@ async function handleTranslateRequest(
   if (existing && !existing.abort.signal.aborted) {
     existing.subscribers.push({ tabId, payload: typedPayload, sendResponse });
     tabTranslationJobs.set(abortKey, existing);
+    return;
+  }
+
+  const tabJob = tabTranslationJobs.get(abortKey);
+  const tabPayload = tabJob?.subscribers[0]?.payload;
+  if (
+    tabJob &&
+    !tabJob.abort.signal.aborted &&
+    tabPayload &&
+    liveTranslationScopeMatch(typedPayload, tabPayload)
+  ) {
+    tabJob.subscribers.push({ tabId, payload: typedPayload, sendResponse });
     return;
   }
 

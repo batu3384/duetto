@@ -60,9 +60,6 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   if (!hasKey) {
     return { text: 'Gemini anahtarı gerekli — uzantı simgesi → Gemini', isError: true };
   }
-  if (subtitleManager.isTranslatingNow()) {
-    return { text: 'Çeviri yapılıyor…', isError: false };
-  }
   return { text: '', isError: false };
 }
 

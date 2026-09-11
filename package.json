@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "check": "node --experimental-strip-types src/services/vttParser.check.ts && node --experimental-strip-types src/services/subtitleLook.check.ts && node --experimental-strip-types src/services/translator/gemini.check.ts && node --experimental-strip-types src/services/storage.check.ts",
+    "check": "node --experimental-strip-types src/services/vttParser.check.ts && node --experimental-strip-types src/services/udemyCaptions.check.ts && node --experimental-strip-types src/services/subtitleLook.check.ts && node --experimental-strip-types src/services/translator/gemini.check.ts && node --experimental-strip-types src/services/storage.check.ts",
     "icons": "node generate-icons.js",
     "wiki:sync": "bash scripts/sync-wiki.sh"
   },

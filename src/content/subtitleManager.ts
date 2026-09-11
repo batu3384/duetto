@@ -14,6 +14,13 @@ import {
 } from '../services/vttParser';
 import { getTranscript, saveTranscript, transcriptStorageId, transcriptTranslationFingerprint } from '../services/db';
 import { getPageSettings } from '../services/storage';
+import {
+  activateCaptionTracks,
+  collectPerformanceCaptionUrls,
+  fetchUdemyCaptionUrl,
+  waitForCaptionResourceUrl,
+  waitForTrackCues,
+} from '../services/udemyCaptions';
 import { shadowOverlay } from './overlay/shadowRoot';
 import type { TranslationPatch } from '../services/translator/gemini';
 
@@ -48,7 +55,7 @@ function cacheLooksTranslated(cues: SubtitleCue[]): boolean {
   return cueTranslationCoverage(cues) >= 0.95;
 }
 
-const SOURCE_ERROR = 'Kaynak altyazı doğrulanamadı. Udemy altyazıyı açıp “Altyazıyı yenile” seçin.';
+const SOURCE_ERROR = 'Kaynak altyazı bulunamadı. Videoyu oynatın veya “Altyazıyı yenile” seçin.';
 const CAPTION_POLL_INTERVAL_MS = 1000;
 const CAPTION_POLL_ATTEMPTS = 20;
 const CAPTION_FETCH_TIMEOUT_MS = 10000;
@@ -254,11 +261,13 @@ export class SubtitleManager {
     const req = this.translateReq;
     this.extractCourseAndLectureInfo();
 
+    activateCaptionTracks(video, isValidCaptionTrack);
+
     if (video.textTracks) {
       this.detachTrackHandler();
       this.trackList = video.textTracks;
       this.trackChangeHandler = () => {
-        this.ensureTracksActive(video);
+        activateCaptionTracks(video, isValidCaptionTrack);
         if (this.trackRefreshTimer) clearTimeout(this.trackRefreshTimer);
         this.trackRefreshTimer = setTimeout(() => {
           this.trackRefreshTimer = null;
@@ -331,17 +340,6 @@ export class SubtitleManager {
     }
   }
 
-  private ensureTracksActive(video: HTMLVideoElement, preferred?: TextTrack | null): void {
-    const tracks = preferred
-      ? [preferred]
-      : video.textTracks
-        ? Array.from(video.textTracks).filter(isValidCaptionTrack)
-        : [];
-    for (const track of tracks) {
-      if (isValidCaptionTrack(track) && track.mode === 'disabled') track.mode = 'hidden';
-    }
-  }
-
   private async extractAllCues(
     video: HTMLVideoElement,
     expectedRequestId = this.translateReq
@@ -356,37 +354,52 @@ export class SubtitleManager {
     this.sourceLoading = true;
     this.sourceError = null;
 
-    if (source) {
-      this.ensureTracksActive(video, source.track);
-      if (source.track?.cues && source.track.cues.length > 0) {
+    activateCaptionTracks(video, isValidCaptionTrack);
+
+    if (source?.track) {
+      await waitForTrackCues(source.track);
+      if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
+      if (source.track.cues && source.track.cues.length > 0) {
         const extracted = this.convertTextTrackToCues(source.track);
         if (extracted.length > 0) return extracted;
       }
+    }
 
-      if (source.url) {
-        const vttText = await fetchCaptionText(source.url);
-        if (vttText) {
-          const parsed = parseVTT(vttText);
-          if (parsed.length > 0) return parsed;
+    const directUrl = source?.url || '';
+    if (directUrl) {
+      const vttText = await fetchCaptionText(directUrl);
+      if (vttText) {
+        const parsed = parseVTT(vttText);
+        if (parsed.length > 0) return parsed;
+      }
+    }
+
+    const apiCaption = await fetchUdemyCaptionUrl(this.currentLectureId, targetSourceLang);
+    if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
+    if (apiCaption?.url) {
+      const apiText = await fetchCaptionText(apiCaption.url);
+      if (apiText) {
+        const parsed = parseVTT(apiText);
+        if (parsed.length > 0) {
+          this.sourceLabel = apiCaption.label;
+          this.sourceFingerprint = captionSourceFingerprint(
+            { language: targetSourceLang, label: apiCaption.label },
+            apiCaption.url
+          );
+          return parsed;
         }
       }
     }
 
-    let resourceUrls: string[] = [];
-    try {
-      resourceUrls = performance
-        .getEntriesByType('resource')
-        .map((entry) => (entry as PerformanceResourceTiming).name);
-    } catch {
-      resourceUrls = [];
-    }
-    const resourceUrl = selectCaptionResourceUrl(resourceUrls, targetSourceLang);
-    if (resourceUrl && (!source || !source.url)) {
+    const resourceUrl =
+      selectCaptionResourceUrl(collectPerformanceCaptionUrls(), targetSourceLang) ||
+      (await waitForCaptionResourceUrl(targetSourceLang));
+    if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
+    if (resourceUrl) {
       const resourceText = await fetchCaptionText(resourceUrl);
       if (resourceText) {
         const parsed = parseVTT(resourceText);
         if (parsed.length > 0) {
-          if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
           const label = source?.label || `${targetSourceLang.toUpperCase()} (network)`;
           this.sourceLabel = label;
           this.sourceFingerprint = captionSourceFingerprint(
@@ -501,7 +514,6 @@ export class SubtitleManager {
     if (cur && byId.has(cur.id)) {
       this.currentCue = this.cues.find((c) => c.id === cur.id) || cur;
       this.notifyCueChange(this.currentCue);
-      if (!hadCurrent) shadowOverlay.showToast('Çeviri geldi', 900);
     }
     this.transcriptListeners.forEach((l) => l(this.cues));
     this.schedulePersist();
