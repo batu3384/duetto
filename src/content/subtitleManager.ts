@@ -18,6 +18,7 @@ import {
   activateCaptionTracks,
   collectPerformanceCaptionUrls,
   fetchUdemyCaptionUrl,
+  forgetUdemyCaptionCache,
   waitForCaptionResourceUrl,
   waitForTrackCues,
 } from '../services/udemyCaptions';
@@ -57,8 +58,9 @@ function cacheLooksTranslated(cues: SubtitleCue[]): boolean {
 
 const SOURCE_ERROR = 'Kaynak altyazı bulunamadı. Videoyu oynatın veya “Altyazıyı yenile” seçin.';
 const CAPTION_POLL_INTERVAL_MS = 1000;
-const CAPTION_POLL_ATTEMPTS = 20;
-const CAPTION_FETCH_TIMEOUT_MS = 10000;
+const CAPTION_POLL_ATTEMPTS = 12;
+const CAPTION_FETCH_TIMEOUT_MS = 8000;
+const CAPTION_SEARCH_DEADLINE_MS = 12000;
 const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
 const TRANSLATE_REQUEST_TIMEOUT_MS = 60000;
 
@@ -81,16 +83,24 @@ function trackElementUrl(element: HTMLTrackElement): string {
 
 function fetchCaptionVttViaBackground(url: string): Promise<string | null> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (text: string | null) => {
+      if (settled) return;
+      settled = true;
+      window.clearTimeout(timeout);
+      resolve(text);
+    };
+    const timeout = window.setTimeout(() => finish(null), CAPTION_FETCH_TIMEOUT_MS);
     try {
       chrome.runtime.sendMessage({ type: 'FETCH_CAPTION_VTT', url }, (response) => {
         if (chrome.runtime.lastError || !response?.success || typeof response.text !== 'string') {
-          resolve(null);
+          finish(null);
           return;
         }
-        resolve(response.text);
+        finish(response.text);
       });
     } catch {
-      resolve(null);
+      finish(null);
     }
   });
 }
@@ -130,6 +140,7 @@ export class SubtitleManager {
   private transcriptListeners: ((cues: SubtitleCue[]) => void)[] = [];
   private trackPollInterval: ReturnType<typeof setInterval> | null = null;
   private trackRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private searchDeadlineTimer: ReturnType<typeof setTimeout> | null = null;
   private activeVideo: HTMLVideoElement | null = null;
   private trackChangeHandler: (() => void) | null = null;
   private trackList: TextTrackList | null = null;
@@ -215,6 +226,8 @@ export class SubtitleManager {
     this.trackPollInterval = null;
     if (this.trackRefreshTimer) clearTimeout(this.trackRefreshTimer);
     this.trackRefreshTimer = null;
+    if (this.searchDeadlineTimer) clearTimeout(this.searchDeadlineTimer);
+    this.searchDeadlineTimer = null;
     this.detachTrackHandler();
     this.cues = [];
     this.currentCue = null;
@@ -223,8 +236,6 @@ export class SubtitleManager {
     this.liveQueued = false;
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
-    if (this.trackRefreshTimer) clearTimeout(this.trackRefreshTimer);
-    this.trackRefreshTimer = null;
     this.translationHint = null;
     this.activeVideo = null;
     this.sourceFingerprint = '';
@@ -237,6 +248,7 @@ export class SubtitleManager {
   private detachTrackHandler(): void {
     if (this.trackList && this.trackChangeHandler) {
       this.trackList.removeEventListener('change', this.trackChangeHandler);
+      this.trackList.removeEventListener('addtrack', this.trackChangeHandler);
     }
     this.trackList = null;
     this.trackChangeHandler = null;
@@ -250,6 +262,8 @@ export class SubtitleManager {
     this.liveQueued = false;
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
+    if (this.searchDeadlineTimer) clearTimeout(this.searchDeadlineTimer);
+    this.searchDeadlineTimer = null;
     this.cues = [];
     this.currentCue = null;
     this.sourceFingerprint = '';
@@ -260,6 +274,7 @@ export class SubtitleManager {
     this.notifyCueChange(null);
     const req = this.translateReq;
     this.extractCourseAndLectureInfo();
+    if (opts?.skipCache) forgetUdemyCaptionCache();
 
     activateCaptionTracks(video, isValidCaptionTrack);
 
@@ -267,25 +282,32 @@ export class SubtitleManager {
       this.detachTrackHandler();
       this.trackList = video.textTracks;
       this.trackChangeHandler = () => {
-        activateCaptionTracks(video, isValidCaptionTrack);
         if (this.trackRefreshTimer) clearTimeout(this.trackRefreshTimer);
         this.trackRefreshTimer = setTimeout(() => {
           this.trackRefreshTimer = null;
           void getPageSettings()
             .then((currentSettings) => {
-              if (this.activeVideo !== video) return;
+              if (this.activeVideo !== video || this.translateReq !== req) return;
+              if (this.sourceLoading && this.cues.length === 0) return;
               const source = this.findCaptionSource(video, currentSettings.sourceLang || 'en');
-              if (!source || source.fingerprint !== this.sourceFingerprint) {
-                void this.loadSubtitlesForVideo(video, { skipCache: true });
-              }
+              if (!source?.fingerprint || source.fingerprint === this.sourceFingerprint) return;
+              void this.loadSubtitlesForVideo(video, { skipCache: true });
             })
             .catch(() => {
               /* stale context or track disappeared */
             });
-        }, 0);
+        }, 250);
       };
       this.trackList.addEventListener('change', this.trackChangeHandler);
+      this.trackList.addEventListener('addtrack', this.trackChangeHandler);
     }
+
+    this.searchDeadlineTimer = setTimeout(() => {
+      if (this.translateReq !== req || this.cues.length) return;
+      this.sourceLoading = false;
+      this.sourceError = SOURCE_ERROR;
+      this.setTranslationHint(SOURCE_ERROR);
+    }, CAPTION_SEARCH_DEADLINE_MS);
 
     const settings = await getPageSettings();
     if (this.translateReq !== req) return;
@@ -294,8 +316,6 @@ export class SubtitleManager {
     const source = this.findCaptionSource(video, sourceLang);
     this.sourceFingerprint = source?.fingerprint || '';
     this.sourceLabel = source?.label || '';
-    this.sourceLoading = true;
-    this.sourceError = null;
     this.notifyCueChange(this.currentCue);
     const storageId = transcriptStorageId(
       this.currentLectureId,
@@ -315,49 +335,52 @@ export class SubtitleManager {
         cached?.cues?.length &&
         !cached.cues.some((c) => !isRealSubtitleText(c.text))
       ) {
-        this.cues = cached.cues;
-        this.sourceLoading = false;
-        this.transcriptListeners.forEach((l) => l(this.cues));
-        this.updateTime(video.currentTime);
-        this.notifyCueChange(this.currentCue);
+        this.applyLoadedCues(cached.cues, video);
         if (cacheLooksTranslated(cached.cues)) return;
         await this.kickTranslate(video.currentTime);
         return;
       }
     }
 
-    const cues = await this.extractAllCues(video, req);
+    const cues = await this.extractAllCues(video, req, { wait: true });
     if (this.translateReq !== req) return;
     if (cues && cues.length > 0) {
-      this.cues = cues;
-      this.sourceLoading = false;
-      this.transcriptListeners.forEach((l) => l(this.cues));
-      this.updateTime(video.currentTime);
-      this.notifyCueChange(this.currentCue);
+      this.applyLoadedCues(cues, video);
       await this.kickTranslate(video.currentTime);
     } else {
       this.startTrackPolling(video);
     }
   }
 
+  private applyLoadedCues(cues: SubtitleCue[], video: HTMLVideoElement): void {
+    this.cues = cues;
+    this.sourceLoading = false;
+    this.sourceError = null;
+    if (this.searchDeadlineTimer) {
+      clearTimeout(this.searchDeadlineTimer);
+      this.searchDeadlineTimer = null;
+    }
+    this.transcriptListeners.forEach((l) => l(this.cues));
+    this.updateTime(video.currentTime);
+    this.notifyCueChange(this.currentCue);
+  }
+
   private async extractAllCues(
     video: HTMLVideoElement,
-    expectedRequestId = this.translateReq
+    expectedRequestId = this.translateReq,
+    opts?: { wait?: boolean }
   ): Promise<SubtitleCue[] | null> {
+    const wait = opts?.wait === true;
     const settings = await getPageSettings();
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     const targetSourceLang = (settings.sourceLang || 'en').toLowerCase();
     const source = this.findCaptionSource(video, targetSourceLang);
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
-    this.sourceFingerprint = source?.fingerprint || '';
-    this.sourceLabel = source?.label || '';
-    this.sourceLoading = true;
-    this.sourceError = null;
-
-    activateCaptionTracks(video, isValidCaptionTrack);
+    if (source?.fingerprint) this.sourceFingerprint = source.fingerprint;
+    if (source?.label) this.sourceLabel = source.label;
 
     if (source?.track) {
-      await waitForTrackCues(source.track);
+      if (wait) await waitForTrackCues(source.track);
       if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
       if (source.track.cues && source.track.cues.length > 0) {
         const extracted = this.convertTextTrackToCues(source.track);
@@ -368,6 +391,7 @@ export class SubtitleManager {
     const directUrl = source?.url || '';
     if (directUrl) {
       const vttText = await fetchCaptionText(directUrl);
+      if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
       if (vttText) {
         const parsed = parseVTT(vttText);
         if (parsed.length > 0) return parsed;
@@ -378,6 +402,7 @@ export class SubtitleManager {
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     if (apiCaption?.url) {
       const apiText = await fetchCaptionText(apiCaption.url);
+      if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
       if (apiText) {
         const parsed = parseVTT(apiText);
         if (parsed.length > 0) {
@@ -391,12 +416,12 @@ export class SubtitleManager {
       }
     }
 
-    const resourceUrl =
-      selectCaptionResourceUrl(collectPerformanceCaptionUrls(), targetSourceLang) ||
-      (await waitForCaptionResourceUrl(targetSourceLang));
+    let resourceUrl = selectCaptionResourceUrl(collectPerformanceCaptionUrls(), targetSourceLang);
+    if (!resourceUrl && wait) resourceUrl = await waitForCaptionResourceUrl(targetSourceLang);
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     if (resourceUrl) {
       const resourceText = await fetchCaptionText(resourceUrl);
+      if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
       if (resourceText) {
         const parsed = parseVTT(resourceText);
         if (parsed.length > 0) {
@@ -456,7 +481,7 @@ export class SubtitleManager {
     const pollReq = this.translateReq;
     let pollBusy = false;
 
-    this.trackPollInterval = setInterval(async () => {
+    const tick = async () => {
       if (pollBusy) return;
       if (this.translateReq !== pollReq) {
         if (this.trackPollInterval) clearInterval(this.trackPollInterval);
@@ -471,12 +496,7 @@ export class SubtitleManager {
           if (this.trackPollInterval) clearInterval(this.trackPollInterval);
           this.trackPollInterval = null;
           if (this.translateReq !== pollReq) return;
-          this.cues = cues;
-          this.sourceLoading = false;
-          this.sourceError = null;
-          this.transcriptListeners.forEach((l) => l(this.cues));
-          this.updateTime(video.currentTime);
-          this.notifyCueChange(this.currentCue);
+          this.applyLoadedCues(cues, video);
           await this.kickTranslate(video.currentTime);
         } else if (
           attempts >= CAPTION_POLL_ATTEMPTS &&
@@ -488,11 +508,15 @@ export class SubtitleManager {
           this.sourceLoading = false;
           this.sourceError = SOURCE_ERROR;
           this.setTranslationHint(SOURCE_ERROR);
-          shadowOverlay.showToast(SOURCE_ERROR, 6000);
         }
       } finally {
         pollBusy = false;
       }
+    };
+
+    void tick();
+    this.trackPollInterval = setInterval(() => {
+      void tick();
     }, CAPTION_POLL_INTERVAL_MS);
   }
 

@@ -1,7 +1,12 @@
 import { selectCaptionResourceUrl, trackMatchesSource } from './vttParser.ts';
 
-const TRACK_CUE_WAIT_MS = 4000;
-const RESOURCE_WAIT_MS = 3000;
+const TRACK_CUE_WAIT_MS = 700;
+const RESOURCE_WAIT_MS = 1000;
+const API_TIMEOUT_MS = 4000;
+
+export function isNumericLectureId(lectureId: string): boolean {
+  return /^\d+$/.test(lectureId || '');
+}
 
 export function captionLocaleMatches(localeId: string, sourceLang: string): boolean {
   const loc = (localeId || '').toLowerCase().replace(/_/g, '-');
@@ -22,7 +27,13 @@ export function activateCaptionTracks(
   }
 }
 
-export function waitForTrackCues(track: TextTrack, timeoutMs = TRACK_CUE_WAIT_MS): Promise<void> {
+type CueWaitTrack = {
+  cues: { length: number } | null;
+  addEventListener: (type: string, listener: () => void) => void;
+  removeEventListener: (type: string, listener: () => void) => void;
+};
+
+export function waitForTrackCues(track: CueWaitTrack, timeoutMs = TRACK_CUE_WAIT_MS): Promise<void> {
   if (track.cues && track.cues.length > 0) return Promise.resolve();
   return new Promise((resolve) => {
     let settled = false;
@@ -44,38 +55,98 @@ export function waitForTrackCues(track: TextTrack, timeoutMs = TRACK_CUE_WAIT_MS
 export function findUdemyCourseId(doc: Document = document): string | null {
   const fromAttr = doc.querySelector('[data-course-id]')?.getAttribute('data-course-id')?.trim();
   if (fromAttr && /^\d+$/.test(fromAttr)) return fromAttr;
-  const match = doc.documentElement.innerHTML.match(/"course_id"\s*:\s*(\d+)/);
-  return match ? match[1] : null;
+  const fromMeta = doc
+    .querySelector('meta[property="udemy_com:course_id"], meta[name="course_id"]')
+    ?.getAttribute('content')
+    ?.trim();
+  if (fromMeta && /^\d+$/.test(fromMeta)) return fromMeta;
+  return null;
 }
 
-type UdemyCaptionAsset = { locale_id?: string; url?: string; video_label?: string };
+type UdemyCaptionAsset = { locale_id?: string; url?: string; video_label?: string; title?: string };
+
+const captionUrlCache = new Map<string, { url: string; label: string } | null>();
+const captionUrlInflight = new Map<string, Promise<{ url: string; label: string } | null>>();
+
+export function forgetUdemyCaptionCache(): void {
+  captionUrlCache.clear();
+  captionUrlInflight.clear();
+}
+
+function pickCaptionAsset(
+  captions: UdemyCaptionAsset[],
+  sourceLang: string
+): { url: string; label: string } | null {
+  const match =
+    captions.find((c) => captionLocaleMatches(c.locale_id || '', sourceLang)) ||
+    captions.find((c) => trackMatchesSource(c.locale_id || '', c.video_label || c.title || '', sourceLang));
+  if (!match?.url) return null;
+  try {
+    const url = new URL(match.url, 'https://www.udemy.com').href;
+    const label = match.video_label || match.title || match.locale_id || sourceLang;
+    return { url, label };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLectureCaptionsJson(apiUrl: string): Promise<UdemyCaptionAsset[] | null> {
+  const response = await fetch(apiUrl, {
+    credentials: 'include',
+    signal: AbortSignal.timeout(API_TIMEOUT_MS),
+  });
+  if (!response.ok) return null;
+  const data = (await response.json()) as {
+    asset?: { captions?: UdemyCaptionAsset[] };
+    captions?: UdemyCaptionAsset[];
+  };
+  const captions = data?.asset?.captions || data?.captions;
+  return Array.isArray(captions) && captions.length ? captions : null;
+}
 
 export async function fetchUdemyCaptionUrl(
   lectureId: string,
   sourceLang: string,
   courseId?: string | null
 ): Promise<{ url: string; label: string } | null> {
-  const cid = courseId || findUdemyCourseId();
-  if (!cid || !lectureId) return null;
-  const apiUrl = `https://www.udemy.com/api-2.0/courses/${cid}/subscriber-curriculum-items/${lectureId}/?fields=asset&fields[asset]=captions`;
-  try {
-    const response = await fetch(apiUrl, {
-      credentials: 'include',
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!response.ok) return null;
-    const data = (await response.json()) as { asset?: { captions?: UdemyCaptionAsset[] } };
-    const captions = data?.asset?.captions;
-    if (!Array.isArray(captions) || !captions.length) return null;
-    const match =
-      captions.find((c) => captionLocaleMatches(c.locale_id || '', sourceLang)) ||
-      captions.find((c) => trackMatchesSource(c.locale_id || '', c.video_label || '', sourceLang));
-    if (!match?.url) return null;
-    const label = match.video_label || match.locale_id || sourceLang;
-    return { url: match.url, label };
-  } catch {
-    return null;
-  }
+  if (!isNumericLectureId(lectureId)) return null;
+  const src = (sourceLang || 'en').toLowerCase();
+  const key = `${lectureId}|${src}`;
+  if (captionUrlCache.has(key)) return captionUrlCache.get(key) || null;
+  const pending = captionUrlInflight.get(key);
+  if (pending) return pending;
+
+  const job = (async () => {
+    const endpoints = [
+      `https://www.udemy.com/api-2.0/lectures/${lectureId}/?fields[lecture]=asset&fields[asset]=captions`,
+    ];
+    const cid = courseId || findUdemyCourseId();
+    if (cid && /^\d+$/.test(cid)) {
+      endpoints.push(
+        `https://www.udemy.com/api-2.0/courses/${cid}/subscriber-curriculum-items/${lectureId}/?fields[lecture]=asset&fields[asset]=captions`
+      );
+    }
+    let result: { url: string; label: string } | null = null;
+    let completed = false;
+    for (const apiUrl of endpoints) {
+      try {
+        const captions = await fetchLectureCaptionsJson(apiUrl);
+        completed = true;
+        if (!captions) continue;
+        result = pickCaptionAsset(captions, src);
+        if (result) break;
+      } catch {
+        /* timeout / network — try next, do not cache abort */
+      }
+    }
+    if (result || completed) captionUrlCache.set(key, result);
+    return result;
+  })().finally(() => {
+    captionUrlInflight.delete(key);
+  });
+
+  captionUrlInflight.set(key, job);
+  return job;
 }
 
 export function collectPerformanceCaptionUrls(): string[] {
@@ -95,27 +166,31 @@ export function waitForCaptionResourceUrl(sourceLang: string, timeoutMs = RESOUR
 
   return new Promise((resolve) => {
     let settled = false;
+    let observer: PerformanceObserver | null = null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const finish = (url: string | null) => {
       if (settled) return;
       settled = true;
-      clearTimeout(timer);
-      observer.disconnect();
+      if (timer) clearTimeout(timer);
+      observer?.disconnect();
       resolve(url);
     };
 
-    const observer = new PerformanceObserver((list) => {
-      const names = list.getEntries().map((entry) => entry.name);
-      const url = selectCaptionResourceUrl([...collectPerformanceCaptionUrls(), ...names], sourceLang);
-      if (url) finish(url);
-    });
-
     try {
+      observer = new PerformanceObserver((list) => {
+        const names = list.getEntries().map((entry) => entry.name);
+        const url = selectCaptionResourceUrl([...collectPerformanceCaptionUrls(), ...names], sourceLang);
+        if (url) finish(url);
+      });
       observer.observe({ type: 'resource', buffered: true });
     } catch {
-      finish(null);
+      finish(selectCaptionResourceUrl(collectPerformanceCaptionUrls(), sourceLang));
       return;
     }
 
-    const timer = setTimeout(() => finish(selectCaptionResourceUrl(collectPerformanceCaptionUrls(), sourceLang)), timeoutMs);
+    timer = setTimeout(
+      () => finish(selectCaptionResourceUrl(collectPerformanceCaptionUrls(), sourceLang)),
+      timeoutMs
+    );
   });
 }

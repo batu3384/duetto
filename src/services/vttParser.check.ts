@@ -6,6 +6,7 @@ import {
   groupCuesForBatchTranslation,
   groupCuesForLiveTranslation,
   isRealSubtitleText,
+  isCaptionTrack,
   liveWindowCues,
   orderCuesForLiveTranslation,
   parseBatchTranslation,
@@ -176,10 +177,23 @@ assert(
     captionSourceFingerprint({ language: 'en', label: 'English (auto-generated)' }, '/captions/en.vtt'),
   'source fingerprint changes with source label'
 );
+assert(isCaptionTrack({ kind: '' }), 'empty kind treated as caption');
+assert(isCaptionTrack({ kind: 'subtitles' }), 'subtitles kind');
+assert(!isCaptionTrack({ kind: 'descriptions' }), 'descriptions excluded');
+assert(!isCaptionTrack({ kind: 'metadata' }), 'metadata excluded');
 assert(
-  selectCaptionResourceUrl(['https://cdn.udemy.com/captions/en-US.vtt'], 'en') ===
-    'https://cdn.udemy.com/captions/en-US.vtt',
-  'language-matched network caption selected'
+  selectPreferredCaptionTrack([{ language: 'en', label: 'English', kind: '' }], 'en')?.label === 'English',
+  'empty-kind english track selectable'
+);
+assert(
+  selectCaptionResourceUrl(
+    [
+      'https://cdn.udemy.com/captions/en.vtt?token=one',
+      'https://cdn.udemy.com/captions/en.vtt?token=two',
+    ],
+    'en'
+  ) === 'https://cdn.udemy.com/captions/en.vtt?token=one',
+  'signed duplicate network captions collapse to one'
 );
 assert(
   selectCaptionResourceUrl(

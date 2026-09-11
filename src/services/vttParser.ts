@@ -285,6 +285,10 @@ export interface CaptionTrackLike {
 
 export function isCaptionTrack(track: CaptionTrackLike): boolean {
   const kind = (track.kind || '').toLowerCase();
+  if (kind === 'metadata' || kind === 'chapters' || kind === 'descriptions' || kind === 'thumbnails') {
+    return false;
+  }
+  if (!kind) return true;
   return kind === 'captions' || kind === 'subtitles';
 }
 
@@ -346,17 +350,26 @@ export function selectCaptionResourceUrl(urls: string[], sourceLang: string): st
   const isCaptionUrl = (url: string): boolean =>
     (/\.vtt(?:$|[?#])|\/(?:captions?|subtitles?)(?:\/|[?#])/i.test(url)) &&
     !/thumb-sprites|thumbnails|storyboard|preview|sprite/i.test(url);
-  const matches = Array.from(
-    new Set(
-      urls.filter(
-        (url) =>
-          typeof url === 'string' &&
-          /^https?:\/\//i.test(url) &&
-          isUdemyHost(url) &&
-          isCaptionUrl(url) &&
-          (languageToken.test(url) || (src === 'en' && /english/i.test(url)))
-      )
-    )
-  );
+  const byPath = new Map<string, string>();
+  for (const url of urls) {
+    if (
+      typeof url !== 'string' ||
+      !/^https?:\/\//i.test(url) ||
+      !isUdemyHost(url) ||
+      !isCaptionUrl(url) ||
+      !(languageToken.test(url) || (src === 'en' && /english/i.test(url)))
+    ) {
+      continue;
+    }
+    let pathKey = url.split(/[?#]/, 1)[0];
+    try {
+      const parsed = new URL(url);
+      pathKey = `${parsed.origin}${parsed.pathname}`;
+    } catch {
+      /* keep stripped url */
+    }
+    if (!byPath.has(pathKey)) byPath.set(pathKey, url);
+  }
+  const matches = [...byPath.values()];
   return matches.length === 1 ? matches[0] : null;
 }
