@@ -349,7 +349,7 @@ export class ShadowOverlayHost {
         z-index: 20;
         pointer-events: auto;
       }
-      :host(.player-hot) .toolbar, .toolbar.show {
+      :host(.player-hot) .toolbar, .toolbar.show, .toolbar:focus-within {
         opacity: 1;
       }
       .tool-btn {
@@ -381,7 +381,10 @@ export class ShadowOverlayHost {
         margin: 0 2px;
       }
       .tool-source {
-        max-width: 120px;
+        max-width: 160px;
+        height: 28px;
+        border: none;
+        background: transparent;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
@@ -389,6 +392,12 @@ export class ShadowOverlayHost {
         font-size: 9px;
         font-weight: 600;
         padding: 0 5px;
+        cursor: pointer;
+        font-family: inherit;
+      }
+      .tool-source:focus-visible {
+        outline: 2px solid var(--duetto-focus);
+        outline-offset: 2px;
       }
       .tool-source.source-error {
         color: #f3b4b4;
@@ -460,12 +469,19 @@ export class ShadowOverlayHost {
 
     this.toolbarContainer = document.createElement('div');
     this.toolbarContainer.className = 'toolbar';
+    this.toolbarContainer.setAttribute('role', 'toolbar');
+    this.toolbarContainer.setAttribute('aria-label', 'Duetto oynatıcı araçları');
 
     this.toastContainer = document.createElement('div');
     this.toastContainer.className = 'toast';
+    this.toastContainer.setAttribute('role', 'status');
+    this.toastContainer.setAttribute('aria-live', 'polite');
+    this.toastContainer.setAttribute('aria-atomic', 'true');
 
     this.wordTooltipContainer = document.createElement('div');
     this.wordTooltipContainer.className = 'word-tooltip';
+    this.wordTooltipContainer.setAttribute('role', 'status');
+    this.wordTooltipContainer.setAttribute('aria-live', 'polite');
     this.wordTooltipContainer.innerHTML =
       '<div class="tooltip-frost"></div><div class="word-tooltip-arrow"></div><div class="tooltip-body"></div>';
 

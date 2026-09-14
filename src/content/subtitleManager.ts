@@ -26,6 +26,7 @@ import {
   waitForTrackCues,
 } from '../services/udemyCaptions';
 import { shadowOverlay } from './overlay/shadowRoot';
+import { formatSourceStatus, shouldRetryCaptionSearch, cacheMatchesCaptionSource } from './captionSearchState';
 import type { TranslationPatch } from '../services/translator/gemini';
 
 function isValidCaptionTrack(track: TextTrack): boolean {
@@ -65,7 +66,8 @@ const CAPTION_POLL_ATTEMPTS = 12;
 const CAPTION_FETCH_TIMEOUT_MS = 8000;
 const CAPTION_SEARCH_DEADLINE_MS = 12000;
 const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
-const TRANSLATE_REQUEST_TIMEOUT_MS = 60000;
+const TRANSLATE_REQUEST_TIMEOUT_MS = 90000;
+const TRANSLATE_HANG_MS = 180000;
 
 interface CaptionSource {
   track: TextTrack | null;
@@ -153,6 +155,8 @@ export class SubtitleManager {
   private isTranslating: boolean = false;
   private liveInflight: boolean = false;
   private liveQueued: boolean = false;
+  private swTranslatePending: boolean = false;
+  private extractInFlight: boolean = false;
   private liveTimer: ReturnType<typeof setTimeout> | null = null;
   private translationHint: string | null = null;
   private translateReq: number = 0;
@@ -195,7 +199,7 @@ export class SubtitleManager {
   }
 
   public isTranslatingNow(): boolean {
-    return this.isTranslating || this.liveInflight;
+    return this.isTranslating || this.liveInflight || this.swTranslatePending;
   }
 
   public getTranslationHint(): string | null {
@@ -203,7 +207,11 @@ export class SubtitleManager {
   }
 
   public getSourceLabel(): string {
-    return this.sourceLabel || (this.sourceLoading ? 'Altyazı aranıyor…' : '');
+    return this.sourceLabel || (this.sourceLoading ? 'Altyazı aranıyor…' : this.cues.length ? 'Kaynak altyazı' : '');
+  }
+
+  public getSourceStatusText(): string {
+    return formatSourceStatus(this.sourceError, this.sourceLabel, this.sourceLoading);
   }
 
   public getSourceError(): string | null {
@@ -270,7 +278,7 @@ export class SubtitleManager {
       this.currentCue = existing;
       this.sourceLoading = false;
       this.sourceError = null;
-      if (!this.sourceLabel) this.sourceLabel = readNativeCaptionLabel(root) || 'Kaynak altyazı';
+      this.markNativeSource(readNativeCaptionLabel(root) || 'Kaynak altyazı');
       this.notifyCueChange(existing);
       if (!existing.translation) this.nudgeLive(currentTime);
       return;
@@ -284,7 +292,7 @@ export class SubtitleManager {
     this.cues = [...this.cues.filter((item) => item.id.startsWith('native-')), cue].slice(-24);
     this.sourceLoading = false;
     this.sourceError = null;
-    this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(root) || 'Kaynak altyazı';
+    this.markNativeSource(readNativeCaptionLabel(root) || 'Kaynak altyazı');
     this.currentCue = cue;
     this.notifyCueChange(cue);
     this.nudgeLive(currentTime);
@@ -318,6 +326,8 @@ export class SubtitleManager {
     this.isTranslating = false;
     this.liveInflight = false;
     this.liveQueued = false;
+    this.swTranslatePending = false;
+    this.extractInFlight = false;
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
     this.translationHint = null;
@@ -350,6 +360,8 @@ export class SubtitleManager {
     this.isTranslating = false;
     this.liveInflight = false;
     this.liveQueued = false;
+    this.swTranslatePending = false;
+    this.extractInFlight = false;
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
     if (this.searchDeadlineTimer) clearTimeout(this.searchDeadlineTimer);
@@ -383,9 +395,13 @@ export class SubtitleManager {
                 currentSettings.sourceLang || 'en',
                 currentSettings.targetLang || 'tr'
               );
-              if (!source?.fingerprint) return;
-              if (source.fingerprint === this.sourceFingerprint) {
-                if (this.cues.length === 0 && this.sourceLoading) this.startTrackPolling(video);
+              const needsRetry = shouldRetryCaptionSearch({
+                hasCues: this.cues.length > 0,
+                sourceError: !!this.sourceError,
+                nativeOnly: this.cues.length > 0 && this.cues.every((cue) => cue.id.startsWith('native-')),
+              });
+              if (!source?.fingerprint || source.fingerprint === this.sourceFingerprint) {
+                if (needsRetry) this.retryCaptionSearch(video);
                 return;
               }
               void this.loadSubtitlesForVideo(video, { skipCache: true });
@@ -403,6 +419,7 @@ export class SubtitleManager {
       void getPageSettings()
         .then((currentSettings) => {
           if (this.translateReq !== req || this.cues.length) return;
+          if (this.extractInFlight || this.trackPollInterval) return;
           const root = this.nativeCaptionRoot(video);
           const native = readNativeCaptionText(root);
           if (
@@ -417,7 +434,7 @@ export class SubtitleManager {
           ) {
             this.sourceLoading = false;
             this.sourceError = null;
-            this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(root) || 'Kaynak altyazı';
+            this.markNativeSource(readNativeCaptionLabel(root) || 'Kaynak altyazı');
             this.syncNativeCue(video.currentTime);
             return;
           }
@@ -427,6 +444,7 @@ export class SubtitleManager {
         })
         .catch(() => {
           if (this.translateReq !== req || this.cues.length) return;
+          if (this.extractInFlight || this.trackPollInterval) return;
           this.sourceLoading = false;
           this.sourceError = SOURCE_ERROR;
           this.setTranslationHint(SOURCE_ERROR);
@@ -453,7 +471,7 @@ export class SubtitleManager {
     if (!opts?.skipCache && this.currentLectureId) {
       const cached = await getTranscript(storageId);
       if (this.translateReq !== req) return;
-      const cacheMatchesSource = !!source?.fingerprint && cached?.sourceFingerprint === source.fingerprint;
+      const cacheMatchesSource = cacheMatchesCaptionSource(cached?.sourceFingerprint, source?.fingerprint || '');
       const cacheMatchesTranslation = cached?.translationFingerprint === translationFingerprint;
       if (
         cacheMatchesSource &&
@@ -461,6 +479,9 @@ export class SubtitleManager {
         cached?.cues?.length &&
         !cached.cues.some((c) => !isRealSubtitleText(c.text))
       ) {
+        if (!this.sourceFingerprint && cached.sourceFingerprint) {
+          this.sourceFingerprint = cached.sourceFingerprint;
+        }
         this.applyLoadedCues(cached.cues, video);
         if (cacheLooksTranslated(cached.cues)) return;
         await this.kickTranslate(video.currentTime);
@@ -468,7 +489,13 @@ export class SubtitleManager {
       }
     }
 
-    const cues = await this.extractAllCues(video, req, { wait: true });
+    this.extractInFlight = true;
+    let cues: SubtitleCue[] | null = null;
+    try {
+      cues = await this.extractAllCues(video, req, { wait: true });
+    } finally {
+      this.extractInFlight = false;
+    }
     if (this.translateReq !== req) return;
     if (cues && cues.length > 0) {
       this.applyLoadedCues(cues, video);
@@ -483,6 +510,7 @@ export class SubtitleManager {
     this.cues = cues;
     this.sourceLoading = false;
     this.sourceError = null;
+    if (!this.sourceLabel && cues.length) this.sourceLabel = 'Kaynak altyazı';
     if (this.searchDeadlineTimer) {
       clearTimeout(this.searchDeadlineTimer);
       this.searchDeadlineTimer = null;
@@ -576,9 +604,9 @@ export class SubtitleManager {
     if (
       native &&
       isRealSubtitleText(native) &&
-      this.nativeCaptionMatchesSource(targetSourceLang, targetLang, nativeRoot)
+      this.nativeCaptionMatchesSource(targetSourceLang, targetLang, nativeRoot, video)
     ) {
-      this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(nativeRoot) || 'Kaynak altyazı';
+      this.markNativeSource(readNativeCaptionLabel(nativeRoot) || 'Kaynak altyazı');
       this.sourceError = null;
       return [
         {
@@ -628,6 +656,27 @@ export class SubtitleManager {
       fingerprint: captionSourceFingerprint({ language, label }, trackElementUrl(trackElement)),
       label,
     };
+  }
+
+  private retryCaptionSearch(video: HTMLVideoElement): void {
+    this.sourceError = null;
+    if (this.cues.length === 0) {
+      this.sourceLoading = true;
+      this.setTranslationHint(null);
+    } else {
+      this.notifyCueChange(this.currentCue);
+    }
+    this.startTrackPolling(video);
+  }
+
+  private markNativeSource(label: string): void {
+    this.sourceLabel = this.sourceLabel || label;
+    if (!this.sourceFingerprint) {
+      this.sourceFingerprint = captionSourceFingerprint(
+        { language: this.nativeSourceLang, label: this.sourceLabel },
+        'native'
+      );
+    }
   }
 
   private startTrackPolling(video: HTMLVideoElement): void {
@@ -700,7 +749,6 @@ export class SubtitleManager {
     if (typeof meta?.requestId === 'number' && meta.requestId !== this.translateReq) return;
 
     const byId = new Map(patches.map((p) => [p.id, p.translation]));
-    const hadCurrent = !!this.currentCue?.translation;
     this.cues = this.cues.map((c) => {
       const next = byId.get(c.id);
       return next ? { ...c, translation: next } : c;
@@ -751,7 +799,7 @@ export class SubtitleManager {
   public nudgeLive(aroundTime: number): void {
     const cue = cueAtTime(this.cues, aroundTime);
     if (!cue || cue.translation?.trim()) return;
-    if (this.liveInflight) {
+    if (this.liveInflight || this.swTranslatePending) {
       this.liveQueued = true;
       return;
     }
@@ -767,7 +815,7 @@ export class SubtitleManager {
   }
 
   public async ensureLive(aroundTime: number): Promise<void> {
-    if (this.liveInflight) {
+    if (this.liveInflight || this.swTranslatePending) {
       this.liveQueued = true;
       return;
     }
@@ -818,9 +866,11 @@ export class SubtitleManager {
         this.liveQueued = false;
         return;
       }
-      if (this.liveQueued) {
+      if (this.liveQueued && !this.swTranslatePending) {
         this.liveQueued = false;
         void this.ensureLive(this.activeVideo?.currentTime ?? aroundTime);
+      } else {
+        this.notifyCueChange(this.currentCue);
       }
     }
   }
@@ -834,20 +884,40 @@ export class SubtitleManager {
   ): Promise<{ success: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean }> {
     const lectureId = this.currentLectureId;
     const requestId = this.translateReq;
+    this.swTranslatePending = true;
     return new Promise((resolve) => {
       let settled = false;
-      const finish = (response: { success: boolean; cues?: SubtitleCue[]; error?: string }) => {
+      const finish = (response: {
+        success: boolean;
+        cues?: SubtitleCue[];
+        error?: string;
+        aborted?: boolean;
+      }) => {
         if (settled) return;
         settled = true;
         window.clearTimeout(timeout);
+        if (!response.aborted) window.clearTimeout(hang);
         resolve(response);
       };
       const timeout = window.setTimeout(() => {
-        finish({
-          success: false,
-          error: 'Gemini çeviri hatası: yanıt vermedi. Gemini sekmesinden bağlantıyı test edin.',
-        });
+        finish({ success: true, aborted: true });
       }, TRANSLATE_REQUEST_TIMEOUT_MS);
+      const hang = window.setTimeout(() => {
+        this.swTranslatePending = false;
+        if (!settled) {
+          finish({
+            success: false,
+            error: 'Gemini çeviri hatası: yanıt vermedi. Gemini sekmesinden bağlantıyı test edin.',
+          });
+          return;
+        }
+        if (requestId !== this.translateReq || lectureId !== this.currentLectureId) return;
+        this.notifyCueChange(this.currentCue);
+        if (this.liveQueued) {
+          this.liveQueued = false;
+          void this.ensureLive(this.activeVideo?.currentTime ?? aroundTime);
+        }
+      }, TRANSLATE_HANG_MS);
       try {
         chrome.runtime.sendMessage(
           {
@@ -865,14 +935,29 @@ export class SubtitleManager {
             },
           },
           (res) => {
+            this.swTranslatePending = false;
+            window.clearTimeout(hang);
             if (chrome.runtime.lastError) {
               finish({ success: false, error: chrome.runtime.lastError.message });
               return;
             }
-            finish(res || { success: false });
+            const response = res || { success: false };
+            if (settled) {
+              if (requestId === this.translateReq && lectureId === this.currentLectureId) {
+                this.mergeTranslated(response, { lectureId, requestId });
+                if (this.liveQueued) {
+                  this.liveQueued = false;
+                  void this.ensureLive(this.activeVideo?.currentTime ?? aroundTime);
+                }
+              }
+              return;
+            }
+            finish(response);
           }
         );
       } catch (error) {
+        this.swTranslatePending = false;
+        window.clearTimeout(hang);
         finish({
           success: false,
           error: error instanceof Error ? error.message : 'Gemini çeviri bağlantısı kurulamadı.',

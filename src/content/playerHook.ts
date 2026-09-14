@@ -133,12 +133,13 @@ export class PlayerHook {
     if (!video || video.videoWidth < 2) return undefined;
     try {
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
+      const scale = Math.min(1, 480 / video.videoWidth);
+      canvas.width = Math.max(2, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(2, Math.round(video.videoHeight * scale));
       const ctx = canvas.getContext('2d');
       if (!ctx) return undefined;
-      ctx.drawImage(video, 0, 0);
-      return canvas.toDataURL('image/jpeg', 0.72);
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL('image/jpeg', 0.7);
     } catch {
       return undefined;
     }

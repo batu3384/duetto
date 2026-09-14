@@ -177,6 +177,17 @@ assert(
   'visible showing track used when language metadata empty'
 );
 assert(
+  selectPreferredCaptionTrack(
+    [
+      { language: '', label: '', mode: 'showing', kind: 'captions' },
+      { language: 'tr', label: 'Türkçe', mode: 'hidden', kind: 'captions' },
+    ],
+    'en',
+    'tr'
+  ) === null,
+  'unlabeled showing track is not guessed when other tracks exist'
+);
+assert(
   selectCaptionResourceUrl(
     ['https://cdn.udemy.com/captions/tr.vtt', 'https://vse-vod-subtitles.udemycdn.com/hash/file.vtt'],
     'en',

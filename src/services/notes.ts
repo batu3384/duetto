@@ -23,8 +23,18 @@ export async function addNote(note: LectureNote): Promise<LectureNote[]> {
   const notes = await getNotes();
   const next = [note, ...notes].slice(0, 200);
   if (hasStorage()) {
-    await chrome.storage.local.set({ [NOTES_KEY]: next });
-    await chrome.storage.local.remove(LEGACY_NOTES_KEY);
+    try {
+      await chrome.storage.local.set({ [NOTES_KEY]: next });
+      await chrome.storage.local.remove(LEGACY_NOTES_KEY);
+    } catch (err) {
+      if (note.imageDataUrl) {
+        const fallback = [{ ...note, imageDataUrl: undefined }, ...notes].slice(0, 200);
+        await chrome.storage.local.set({ [NOTES_KEY]: fallback });
+        await chrome.storage.local.remove(LEGACY_NOTES_KEY);
+        return fallback;
+      }
+      throw err;
+    }
   }
   return next;
 }

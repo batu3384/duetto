@@ -2,7 +2,7 @@ import { playerHook } from './playerHook';
 import { subtitleManager } from './subtitleManager';
 import { shadowOverlay } from './overlay/shadowRoot';
 import { uiRenderer } from './overlay/uiRenderer';
-import { setupKeyboardShortcuts } from './shortcuts';
+import { setupKeyboardShortcuts, setShortcutsEnabled } from './shortcuts';
 import { applySettingsCache, extensionAlive, getPageSettings, isStaleExtensionError, mergeSettings, SECRET_KEY, SETTINGS_KEY, settingsForPage } from '../services/storage';
 import { consumePendingSeek, setPendingSeek } from '../services/db';
 import { ExtensionSettings } from '../types';
@@ -108,6 +108,7 @@ function applyLiveSettings(settings: ExtensionSettings) {
   uiRenderer.updateSettings(page);
   applyVideoDock(page);
   refreshNativeCaptionVisibility();
+  setShortcutsEnabled(page.shortcutsEnabled !== false);
   if (typeof page.playbackSpeed === 'number') {
     playerHook.setSpeed(page.playbackSpeed);
   }
@@ -206,11 +207,13 @@ async function bootstrap() {
     } else if (message.type === 'GET_CUES') {
       sendResponse({ cues: subtitleManager.getCues(), meta: subtitleManager.getMetadata() });
     } else if (message.type === 'NAVIGATE_LECTURE') {
-      const { courseId, lectureId, time } = message as {
-        courseId: string;
-        lectureId: string;
-        time: number;
-      };
+      const courseId = typeof message.courseId === 'string' ? message.courseId : '';
+      const lectureId = typeof message.lectureId === 'string' ? message.lectureId : '';
+      const time = typeof message.time === 'number' && Number.isFinite(message.time) ? message.time : 0;
+      if (!/^[a-zA-Z0-9_-]+$/.test(courseId) || !/^\d+$/.test(lectureId)) {
+        sendResponse({ success: false });
+        return;
+      }
       const meta = subtitleManager.getMetadata();
       if (meta.lectureId === lectureId) {
         playerHook.setTime(time);

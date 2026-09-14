@@ -340,12 +340,11 @@ export function selectPreferredCaptionTrack<T extends CaptionTrackLike>(
     );
   }
   if (!avoid || avoid === src) return null;
-  return captions.find(
-    (track) =>
-      track.mode?.toLowerCase() === 'showing' &&
-      !track.language?.trim() &&
-      !track.label?.trim()
-  ) || null;
+  if (captions.length !== 1) return null;
+  const only = captions[0];
+  return only.mode?.toLowerCase() === 'showing' && !only.language?.trim() && !only.label?.trim()
+    ? only
+    : null;
 }
 
 export function captionSourceFingerprint(track: CaptionTrackLike | null, url = ''): string {

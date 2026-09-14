@@ -46,9 +46,9 @@ export default function App() {
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center h-[560px] bg-canvas text-mute gap-2.5">
-        <div className="w-5 h-5 rounded-full border-2 border-line border-t-ink animate-spin" />
-        <span className="text-xs font-mono tracking-wider text-mute">DUETTO</span>
+      <div className="flex flex-col items-center justify-center h-[560px] bg-canvas text-mute gap-2.5" role="status">
+        <div className="w-5 h-5 rounded-full border-2 border-line border-t-ink animate-spin" aria-hidden />
+        <span className="text-xs font-mono tracking-wider text-mute">DUETTO yükleniyor</span>
       </div>
     );
   }
@@ -91,7 +91,7 @@ export default function App() {
       </header>
 
       <div className="px-3.5 pt-2.5 pb-1 shrink-0">
-        <nav className="flex items-center p-0.5 bg-raised rounded-xl border border-line" aria-label="Ayar sekmeleri">
+        <nav className="flex items-center p-0.5 bg-raised rounded-xl border border-line" role="tablist" aria-label="Ayar sekmeleri">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -99,8 +99,11 @@ export default function App() {
               <button
                 key={tab.id}
                 type="button"
+                role="tab"
+                id={`tab-${tab.id}`}
+                aria-selected={isActive}
+                aria-controls={`panel-${tab.id}`}
                 onClick={() => setActiveTab(tab.id)}
-                aria-current={isActive ? 'page' : undefined}
                 className={`flex-1 flex items-center justify-center gap-1 min-h-9 py-1.5 text-xs font-medium rounded-lg cursor-pointer transition-colors duration-200 focus-visible:ring-2 focus-visible:ring-brand-ring ${
                   isActive
                     ? 'bg-brand/20 text-ink font-semibold'
@@ -115,7 +118,7 @@ export default function App() {
         </nav>
       </div>
 
-      <main className="flex-1 overflow-y-auto p-3.5">
+      <main className="flex-1 overflow-y-auto p-3.5" role="tabpanel" id={`panel-${activeTab}`} aria-labelledby={`tab-${activeTab}`}>
         {activeTab === 'subtitles' && (
           <SubtitlesTab settings={settings} onChange={handleUpdateSettings} />
         )}

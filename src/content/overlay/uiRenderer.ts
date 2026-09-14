@@ -7,6 +7,7 @@ import { captionLook, readCssPx } from '../../services/subtitleLook';
 import { applyVideoDock } from './videoDock';
 import { captureCurrentNote } from '../captureNote';
 import { subtitleManager } from '../subtitleManager';
+import { formatSourceStatus } from '../captionSearchState';
 
 const SPEED_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -59,6 +60,9 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   }
   if (!hasKey) {
     return { text: 'Gemini anahtarı gerekli — uzantı simgesi → Gemini', isError: true };
+  }
+  if (subtitleManager.isTranslatingNow()) {
+    return { text: 'Çeviriliyor…', isError: false };
   }
   return { text: '', isError: false };
 }
@@ -157,7 +161,7 @@ export class UIRenderer {
       cue.id,
       cue.translation || '',
       cue.text,
-      subtitleManager.getSourceLabel(),
+      subtitleManager.getSourceStatusText(),
       JSON.stringify(subStyle),
       this.settings.termLockEnabled,
       this.settings.customProtectedTerms.join(','),
@@ -229,7 +233,7 @@ export class UIRenderer {
 
     container.innerHTML = `
       <div class="sub-box" id="sub-drag-box" title="${escapeHtml(
-        subtitleManager.getSourceLabel() ? `Kaynak altyazı: ${subtitleManager.getSourceLabel()}` : ''
+        subtitleManager.getSourceStatusText() ? `Kaynak altyazı: ${subtitleManager.getSourceStatusText()}` : ''
       )}" style="${boxStyle}">
         ${frostHtml}
         <div class="sub-box-inner">${contentHtml}</div>
@@ -247,11 +251,17 @@ export class UIRenderer {
     const source = shadowOverlay.getToolbarContainer()?.querySelector('.tool-source') as HTMLElement | null;
     if (!source) return;
     const error = subtitleManager.getSourceError();
-    const label =
-      error || subtitleManager.getSourceLabel() || (subtitleManager.isSourceLoading() ? 'Altyazı aranıyor…' : 'Kaynak yok');
+    const label = formatSourceStatus(error, subtitleManager.getSourceLabel(), subtitleManager.isSourceLoading());
     source.textContent = label;
-    source.title = error || `Kaynak altyazı: ${label}`;
+    source.title = error
+      ? `${error} Tıkla: altyazıyı yenile.`
+      : `Kaynak altyazı: ${label}. Tıkla: altyazıyı yenile.`;
     source.setAttribute('aria-busy', subtitleManager.isSourceLoading() ? 'true' : 'false');
+    source.setAttribute('aria-live', error ? 'assertive' : 'polite');
+    source.setAttribute(
+      'aria-label',
+      error ? 'Kaynak altyazı bulunamadı. Yenilemek için tıkla' : `Kaynak altyazı: ${label}`
+    );
     source.classList.toggle('source-error', !!error);
   }
 
@@ -533,9 +543,12 @@ export class UIRenderer {
     const speed = playerHook.getSpeed().toFixed(2);
     const isDualOn = this.settings?.dualSubtitlesEnabled;
     const below = this.settings?.subStyle.placement === 'below';
-    const sourceLabel = subtitleManager.getSourceLabel() || 'Kaynak yok';
     const sourceError = subtitleManager.getSourceError();
     const sourceLoading = subtitleManager.isSourceLoading();
+    const sourceText = formatSourceStatus(sourceError, subtitleManager.getSourceLabel(), sourceLoading);
+    const sourceTitle = sourceError
+      ? `${sourceError} Tıkla: altyazıyı yenile.`
+      : `Kaynak altyazı: ${sourceText}. Tıkla: altyazıyı yenile.`;
 
     toolbar.innerHTML = `
       <button type="button" class="tool-btn ${isDualOn ? 'active' : ''}" id="btn-toggle-sub" aria-pressed="${isDualOn ? 'true' : 'false'}" aria-label="Çift altyazı aç kapat" title="Çift Altyazı (D)">
@@ -544,9 +557,9 @@ export class UIRenderer {
       <button type="button" class="tool-btn ${below ? 'active' : ''}" id="btn-dock" aria-pressed="${below ? 'true' : 'false'}" aria-label="Altyazıyı video altına al" title="Konum: ${below ? 'Video altında' : 'Video üstünde'}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"></rect><path d="M3 21h18"></path></svg>
       </button>
-      <span class="tool-source ${sourceError ? 'source-error' : ''}" role="status" aria-live="polite" aria-busy="${sourceLoading ? 'true' : 'false'}" title="${escapeHtml(
-        sourceError || `Kaynak altyazı: ${sourceLabel}`
-      )}">${escapeHtml(sourceLabel)}</span>
+      <button type="button" class="tool-source ${sourceError ? 'source-error' : ''}" id="btn-reload-captions" aria-live="${sourceError ? 'assertive' : 'polite'}" aria-busy="${sourceLoading ? 'true' : 'false'}" aria-label="${escapeHtml(
+        sourceError ? 'Kaynak altyazı bulunamadı. Yenilemek için tıkla' : `Kaynak altyazı: ${sourceText}`
+      )}" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceText)}</button>
       <span class="tool-sep" aria-hidden="true"></span>
       <button type="button" class="tool-btn tool-txt" id="btn-back" aria-label="5 saniye geri" title="Geri 5s (J)">−5</button>
       <button type="button" class="speed-badge" id="badge-speed" aria-label="Oynatma hızını değiştir" title="Hız değiştir (tıkla). [ ve ] de çalışır">${speed}x</button>
@@ -562,6 +575,11 @@ export class UIRenderer {
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"></rect><rect width="6" height="4" x="13" y="13" rx="1"></rect></svg>
       </button>
     `;
+
+    toolbar.querySelector('#btn-reload-captions')?.addEventListener('click', () => {
+      const video = playerHook.findVideoElement();
+      if (video) void subtitleManager.loadSubtitlesForVideo(video, { skipCache: true });
+    });
 
     toolbar.querySelector('#btn-toggle-sub')?.addEventListener('click', async () => {
       if (!this.settings) return;

@@ -187,8 +187,8 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
 
         {testResult && (
           <div
-            role="status"
-            aria-live="polite"
+            role={testResult.success ? 'status' : 'alert'}
+            aria-live={testResult.success ? 'polite' : 'assertive'}
             className={`p-2.5 rounded-lg text-xs flex items-start gap-2 ${
               testResult.success
                 ? 'bg-ok-dim text-ok-fg border border-ok/40'

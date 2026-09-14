@@ -49,9 +49,10 @@ async function handleCaptionFetch(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: { success: boolean; text?: string }) => void
 ): Promise<void> {
+  const pageUrl = sender.url || sender.tab?.url || '';
   if (
     typeof sender.tab?.id !== 'number' ||
-    !isUdemyCaptionUrl(sender.url || '') ||
+    !isUdemyCaptionUrl(pageUrl) ||
     typeof rawUrl !== 'string' ||
     !isUdemyCaptionUrl(rawUrl)
   ) {
