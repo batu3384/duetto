@@ -256,12 +256,36 @@ export function cueTranslationCoverage(cues: SubtitleCue[]): number {
   return n / cues.length;
 }
 
+const ISO3_TO_1: Record<string, string> = {
+  eng: 'en',
+  tur: 'tr',
+  deu: 'de',
+  ger: 'de',
+  fra: 'fr',
+  fre: 'fr',
+  spa: 'es',
+  por: 'pt',
+  ita: 'it',
+  jpn: 'ja',
+  kor: 'ko',
+  chi: 'zh',
+  zho: 'zh',
+  ara: 'ar',
+  rus: 'ru',
+};
+
+/** BCP-47 / ISO 639-2 / Udemy locale → primary code (`eng` / `en_US` / `en` → `en`). */
+export function primaryLang(code: string): string {
+  const primary = (code || '').trim().toLowerCase().replace(/_/g, '-').split('-')[0];
+  return ISO3_TO_1[primary] || primary;
+}
+
 export function trackMatchesSource(language: string, label: string, sourceLang: string): boolean {
-  const lang = (language || '').toLowerCase();
-  const lab = (label || '').toLowerCase();
-  const src = (sourceLang || 'en').toLowerCase();
-  if (lang.startsWith(src)) return true;
-  if (src === 'en') return /\benglish\b|ingiliz/.test(lab);
+  const lab = `${language || ''} ${label || ''}`.toLowerCase();
+  const src = primaryLang(sourceLang);
+  const lang = primaryLang(language);
+  if (src && lang && lang === src) return true;
+  if (src === 'en') return /\benglish\b|\bingiliz|\beng\b|(?:^|\s)en(?:\s|$|[-_\[(])/i.test(lab);
   if (src === 'tr') return /t[uü]rk|turkish/.test(lab);
   if (src === 'de') return /deutsch|german|almanca/.test(lab);
   if (src === 'es') return /spanish|espa[nñ]ol/.test(lab);
@@ -273,7 +297,7 @@ export function trackMatchesSource(language: string, label: string, sourceLang: 
   if (src === 'zh') return /chinese|中文|çin/.test(lab);
   if (src === 'ar') return /arabic|عربي|arap/.test(lab);
   if (src === 'ru') return /russian|русск|rusça/.test(lab);
-  return lab.includes(src);
+  return !!src && lab.includes(src);
 }
 
 export interface CaptionTrackLike {
@@ -298,20 +322,30 @@ function isAutoCaptionLabel(label: string): boolean {
 
 export function selectPreferredCaptionTrack<T extends CaptionTrackLike>(
   tracks: T[],
-  sourceLang: string
+  sourceLang: string,
+  avoidLang?: string
 ): T | null {
-  const matching = tracks.filter(
+  const captions = tracks.filter(isCaptionTrack);
+  if (!captions.length) return null;
+  const src = primaryLang(sourceLang);
+  const avoid = primaryLang(avoidLang || '');
+  const matching = captions.filter((track) =>
+    trackMatchesSource(track.language || '', track.label || '', sourceLang)
+  );
+  if (matching.length) {
+    return (
+      matching.find((track) => track.mode?.toLowerCase() === 'showing') ||
+      matching.find((track) => !isAutoCaptionLabel(track.label || '')) ||
+      matching[0]
+    );
+  }
+  if (!avoid || avoid === src) return null;
+  return captions.find(
     (track) =>
-      isCaptionTrack(track) &&
-      trackMatchesSource(track.language || '', track.label || '', sourceLang)
-  );
-  if (!matching.length) return null;
-
-  return (
-    matching.find((track) => track.mode?.toLowerCase() === 'showing') ||
-    matching.find((track) => !isAutoCaptionLabel(track.label || '')) ||
-    matching[0]
-  );
+      track.mode?.toLowerCase() === 'showing' &&
+      !track.language?.trim() &&
+      !track.label?.trim()
+  ) || null;
 }
 
 export function captionSourceFingerprint(track: CaptionTrackLike | null, url = ''): string {
@@ -329,11 +363,16 @@ export function captionSourceFingerprint(track: CaptionTrackLike | null, url = '
   return identity === '||' ? '' : `v1:${identity}`;
 }
 
-export function selectCaptionResourceUrl(urls: string[], sourceLang: string): string | null {
-  const src = (sourceLang || 'en').trim().toLowerCase();
+export function selectCaptionResourceUrl(urls: string[], sourceLang: string, avoidLang?: string): string | null {
+  const src = primaryLang(sourceLang);
   if (!src) return null;
-  const escaped = src.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const languageToken = new RegExp(`(?:^|[/?#&=_\\-.])${escaped}(?:$|[/?#&=_\\-.])`, 'i');
+  const avoid = primaryLang(avoidLang || '');
+  const langToken = (code: string): RegExp => {
+    const escaped = code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|[/?#&=_\\-.])${escaped}(?:$|[/?#&=_\\-.])`, 'i');
+  };
+  const urlMatchesLang = (url: string, code: string): boolean =>
+    langToken(code).test(url) || (code === 'en' && /english/i.test(url)) || (code === 'tr' && /t(?:urkish|[uü]rk)/i.test(url));
   const isUdemyHost = (url: string): boolean => {
     try {
       const hostname = new URL(url).hostname.toLowerCase();
@@ -352,13 +391,7 @@ export function selectCaptionResourceUrl(urls: string[], sourceLang: string): st
     !/thumb-sprites|thumbnails|storyboard|preview|sprite/i.test(url);
   const byPath = new Map<string, string>();
   for (const url of urls) {
-    if (
-      typeof url !== 'string' ||
-      !/^https?:\/\//i.test(url) ||
-      !isUdemyHost(url) ||
-      !isCaptionUrl(url) ||
-      !(languageToken.test(url) || (src === 'en' && /english/i.test(url)))
-    ) {
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url) || !isUdemyHost(url) || !isCaptionUrl(url)) {
       continue;
     }
     let pathKey = url.split(/[?#]/, 1)[0];
@@ -368,8 +401,18 @@ export function selectCaptionResourceUrl(urls: string[], sourceLang: string): st
     } catch {
       /* keep stripped url */
     }
-    if (!byPath.has(pathKey)) byPath.set(pathKey, url);
+    byPath.set(pathKey, url);
   }
-  const matches = [...byPath.values()];
-  return matches.length === 1 ? matches[0] : null;
+  const candidates = [...byPath.values()];
+  if (!candidates.length) return null;
+  const matched = candidates.filter((url) => urlMatchesLang(url, src));
+  if (matched.length) {
+    return matched.find((url) => !isAutoCaptionLabel(url)) || matched[matched.length - 1];
+  }
+  const rest =
+    avoid && avoid !== src
+      ? candidates.filter((url) => !urlMatchesLang(url, avoid))
+      : candidates;
+  if (rest.length !== 1) return null;
+  return rest[0];
 }

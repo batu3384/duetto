@@ -1,5 +1,6 @@
 import { ExtensionSettings, SubtitleCue } from '../../types';
 import { pingGemini, translatePhraseWithGemini, translateWithGemini, type TranslationPatch } from './gemini';
+import { primaryLang } from '../vttParser';
 
 export type { TranslationPatch };
 
@@ -44,7 +45,7 @@ export async function translateCues(
   const model = settings.geminiModel || 'gemini-3.5-flash-lite';
   const temperature = typeof settings.geminiTemperature === 'number' ? settings.geminiTemperature : 0.2;
 
-  if (sourceLang === targetLang) {
+  if (primaryLang(sourceLang) === primaryLang(targetLang)) {
     const out = cues.map((c) => ({ ...c, translation: c.translation || c.text }));
     opts?.onBatch?.(out.map((c) => ({ id: c.id, translation: c.translation || c.text })));
     onProgress?.(cues.length, cues.length);
@@ -57,6 +58,7 @@ export async function translateCues(
   return translateWithGemini(
     cues,
     key,
+    sourceLang,
     targetLang,
     model,
     temperature,

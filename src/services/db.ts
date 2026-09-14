@@ -11,13 +11,18 @@ export function transcriptStorageId(lectureId: string, sourceLang: string, targe
 }
 
 export function transcriptTranslationFingerprint(
-  settings: Pick<ExtensionSettings, 'targetLang' | 'geminiModel' | 'geminiTemperature' | 'termLockEnabled' | 'customProtectedTerms'>
+  settings: Pick<
+    ExtensionSettings,
+    'targetLang' | 'geminiModel' | 'geminiTemperature' | 'termLockEnabled' | 'customProtectedTerms'
+  > &
+    Partial<Pick<ExtensionSettings, 'sourceLang'>>
 ): string {
   const terms = settings.termLockEnabled
     ? Array.from(new Set((settings.customProtectedTerms || []).map((term) => term.trim().toLowerCase()).filter(Boolean))).sort()
     : [];
   return [
     'v1',
+    (settings.sourceLang || 'en').toLowerCase(),
     (settings.targetLang || 'tr').toLowerCase(),
     settings.geminiModel || '',
     String(settings.geminiTemperature ?? 0.2),

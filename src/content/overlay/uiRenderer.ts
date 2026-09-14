@@ -246,8 +246,9 @@ export class UIRenderer {
   private updateSourceStatus(): void {
     const source = shadowOverlay.getToolbarContainer()?.querySelector('.tool-source') as HTMLElement | null;
     if (!source) return;
-    const label = subtitleManager.getSourceLabel() || 'Kaynak yok';
     const error = subtitleManager.getSourceError();
+    const label =
+      error || subtitleManager.getSourceLabel() || (subtitleManager.isSourceLoading() ? 'Altyazı aranıyor…' : 'Kaynak yok');
     source.textContent = label;
     source.title = error || `Kaynak altyazı: ${label}`;
     source.setAttribute('aria-busy', subtitleManager.isSourceLoading() ? 'true' : 'false');

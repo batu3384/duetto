@@ -52,6 +52,20 @@ function geminiOutputText(data: { candidates?: { content?: { parts?: { text?: st
 
 type GenerateGeminiOpts = { bypassCooldown?: boolean };
 
+function combineAbortSignals(timeout: AbortSignal, abort?: AbortSignal): AbortSignal {
+  if (!abort) return timeout;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([timeout, abort]);
+  const controller = new AbortController();
+  const forward = (signal: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(signal.reason);
+  };
+  if (timeout.aborted) forward(timeout);
+  if (abort.aborted) forward(abort);
+  timeout.addEventListener('abort', () => forward(timeout), { once: true });
+  abort.addEventListener('abort', () => forward(abort), { once: true });
+  return controller.signal;
+}
+
 async function generateGeminiText(
   apiKey: string,
   model: string,
@@ -65,8 +79,7 @@ async function generateGeminiText(
   if (!opts?.bypassCooldown && geminiQuotaCooldownActive()) {
     throw new Error(geminiCooldownMessage());
   }
-  const signal =
-    abort && typeof AbortSignal.any === 'function' ? AbortSignal.any([timeout, abort]) : timeout;
+  const signal = combineAbortSignals(timeout, abort);
   const response = await fetch(geminiGenerateUrl(model), {
     method: 'POST',
     headers: geminiHeaders(apiKey),
@@ -96,6 +109,7 @@ export async function pingGemini(apiKey: string, model: string): Promise<string>
 export async function translateWithGemini(
   cues: SubtitleCue[],
   apiKey: string,
+  sourceLang: string = 'en',
   targetLang: string = 'tr',
   model: string = 'gemini-3.5-flash-lite',
   temperature: number = 0.2,
@@ -127,11 +141,11 @@ export async function translateWithGemini(
     if (geminiQuotaCooldownActive()) throw new Error(geminiCooldownMessage());
     const batchTerms = termLockEnabled ? extractGlossaryTerms(batch.cues.map((c) => c.text).join(' ')) : [];
     const allTerms = termLockEnabled ? Array.from(new Set([...batchTerms, ...customTerms])) : [];
-    const systemInstruction = buildTranslationSystemPrompt(targetLang, allTerms);
+    const systemInstruction = buildTranslationSystemPrompt(targetLang, allTerms, sourceLang);
     const maxOutputTokens = Math.min(2048, 96 * batch.cues.length + 64);
     const prompt = `${systemInstruction}
 
-Translate these lecture lines into natural conversational ${targetLang.toUpperCase()}.
+Translate these lecture lines from ${sourceLang.toUpperCase()} into natural conversational ${targetLang.toUpperCase()}.
 Keep each id in brackets exactly. One line per id.
 
 Lines:

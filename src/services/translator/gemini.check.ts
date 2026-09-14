@@ -39,7 +39,7 @@ assert(
     lectureId: '9166924',
     sourceFingerprint: 'v1:en|english|/en.vtt',
     translationFingerprint: 'v1|tr|model',
-  }) === '9166924|v1:en|english|/en.vtt|v1|tr|model|cue-1',
+  }) === '9166924|v1:en|english|/en.vtt|v1|tr|model|cue-1:0:1:hello',
   'translation job key is deterministic'
 );
 assert(

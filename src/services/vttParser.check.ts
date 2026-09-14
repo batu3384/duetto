@@ -139,7 +139,13 @@ assert(
   'translation fingerprint changes with model'
 );
 
+assert(trackMatchesSource('eng', '', 'en'), 'iso639-2 eng matches en');
 assert(trackMatchesSource('en', 'English', 'en'), 'en track');
+assert(trackMatchesSource('en_US', 'English [Auto]', 'en'), 'en_US locale matches en');
+assert(trackMatchesSource('en-GB', '', 'en'), 'en-GB matches en');
+assert(trackMatchesSource('English', '', 'en'), 'english language name matches en');
+assert(trackMatchesSource('', 'English [CC]', 'en'), 'english label matches en');
+assert(trackMatchesSource('', 'EN [Auto]', 'en'), 'EN label matches en');
 assert(!trackMatchesSource('en', 'English', 'tr'), 'en not stolen for tr');
 assert(trackMatchesSource('tr', 'Türkçe', 'tr'), 'tr label');
 const manualEnglish = { language: 'en', label: 'English', mode: 'hidden' };
@@ -161,7 +167,39 @@ assert(
   selectPreferredCaptionTrack([descriptionEnglish, manualEnglish], 'en') === manualEnglish,
   'description track is excluded'
 );
-assert(selectPreferredCaptionTrack([turkish], 'en') === null, 'unmatched track is not fallback');
+assert(selectPreferredCaptionTrack([turkish], 'en') === null, 'unmatched caption is not used as source');
+assert(
+  selectPreferredCaptionTrack(
+    [{ language: '', label: '', mode: 'showing', kind: 'captions' }],
+    'en',
+    'tr'
+  )?.mode === 'showing',
+  'visible showing track used when language metadata empty'
+);
+assert(
+  selectCaptionResourceUrl(
+    ['https://cdn.udemy.com/captions/tr.vtt', 'https://vse-vod-subtitles.udemycdn.com/hash/file.vtt'],
+    'en',
+    'tr'
+  ) === 'https://vse-vod-subtitles.udemycdn.com/hash/file.vtt',
+  'untagged current vtt used despite leftover turkish'
+);
+assert(
+  selectPreferredCaptionTrack([turkish, { language: 'pt', label: 'Português', kind: 'captions' }], 'en', 'tr')
+    === null,
+  'fallback does not guess unrelated language'
+);
+assert(
+  selectPreferredCaptionTrack(
+    [
+      { language: 'tr', label: 'Türkçe', mode: 'showing', kind: 'captions' },
+      { language: 'en', label: 'English', mode: 'hidden', kind: 'captions' },
+    ],
+    'en',
+    'tr'
+  )?.language === 'en',
+  'hidden english wins over showing turkish'
+);
 assert(
   captionSourceFingerprint({ language: 'en', label: 'English', mode: 'hidden' }, '/captions/en.vtt') ===
     captionSourceFingerprint({ language: 'en', label: 'English', mode: 'showing' }, '/captions/en.vtt'),
@@ -192,15 +230,32 @@ assert(
       'https://cdn.udemy.com/captions/en.vtt?token=two',
     ],
     'en'
-  ) === 'https://cdn.udemy.com/captions/en.vtt?token=one',
-  'signed duplicate network captions collapse to one'
+  ) === 'https://cdn.udemy.com/captions/en.vtt?token=two',
+  'signed duplicate network captions keep latest url'
 );
 assert(
   selectCaptionResourceUrl(
     ['https://cdn.udemy.com/captions/en.vtt', 'https://cdn.udemy.com/captions/en-auto.vtt'],
     'en'
-  ) === null,
-  'ambiguous network captions rejected'
+  ) === 'https://cdn.udemy.com/captions/en.vtt',
+  'ambiguous network captions prefer manual over auto'
+);
+assert(
+  selectCaptionResourceUrl(['https://vse-vod-subtitles.udemycdn.com/hash/file.vtt'], 'en') ===
+    'https://vse-vod-subtitles.udemycdn.com/hash/file.vtt',
+  'language-less udemy vtt still selected'
+);
+assert(
+  selectCaptionResourceUrl(['https://cdn.udemy.com/captions/tr.vtt'], 'en', 'tr') === null,
+  'target-language-only network caption rejected as source'
+);
+assert(
+  selectCaptionResourceUrl(
+    ['https://cdn.udemy.com/captions/tr.vtt', 'https://cdn.udemy.com/captions/en.vtt'],
+    'en',
+    'tr'
+  ) === 'https://cdn.udemy.com/captions/en.vtt',
+  'english network caption wins over turkish'
 );
 assert(
   selectCaptionResourceUrl(['https://cdn.udemy.com/thumb-sprites/en.vtt'], 'en') === null,

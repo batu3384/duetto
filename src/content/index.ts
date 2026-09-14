@@ -25,6 +25,7 @@ let lastLectureKey = '';
 let attaching = false;
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 let staleStopped = false;
+let appliedPageSettings: ExtensionSettings | null = null;
 
 function showStaleExtensionBanner(): void {
   if (document.getElementById(STALE_BANNER_ID)) return;
@@ -81,12 +82,8 @@ function suppressNativeUdemyCaptions(suppress: boolean) {
         [class*="captions-display--captions-container"],
         [data-purpose="captions-cue-text"],
         .vjs-text-track-cue {
-          display: none !important;
           opacity: 0 !important;
-          visibility: hidden !important;
           pointer-events: none !important;
-          height: 0 !important;
-          overflow: hidden !important;
         }
       `;
       document.head.appendChild(styleEl);
@@ -96,12 +93,21 @@ function suppressNativeUdemyCaptions(suppress: boolean) {
   }
 }
 
+function refreshNativeCaptionVisibility(): void {
+  suppressNativeUdemyCaptions(
+    !!appliedPageSettings?.dualSubtitlesEnabled &&
+      subtitleManager.getCues().length > 0 &&
+      !subtitleManager.getSourceError()
+  );
+}
+
 function applyLiveSettings(settings: ExtensionSettings) {
   const page = settingsForPage(settings);
+  appliedPageSettings = page;
   applySettingsCache(page);
   uiRenderer.updateSettings(page);
   applyVideoDock(page);
-  suppressNativeUdemyCaptions(page.dualSubtitlesEnabled);
+  refreshNativeCaptionVisibility();
   if (typeof page.playbackSpeed === 'number') {
     playerHook.setSpeed(page.playbackSpeed);
   }
@@ -118,6 +124,7 @@ function teardownPlayer() {
   onRateChange = null;
   clearVideoDock();
   subtitleManager.reset();
+  refreshNativeCaptionVisibility();
   shadowOverlay.destroy();
   playerHook.resetVideo();
   attachedVideo = null;
@@ -240,7 +247,7 @@ function observePlayer() {
   const runCheck = () => {
     if (guardStaleExtension()) return;
     if (attaching) return;
-    const video = document.querySelector('video') as HTMLVideoElement | null;
+    const video = playerHook.findVideoElement();
     if (!video) return;
     const container = findContainer(video);
     if (!container) return;
@@ -276,7 +283,11 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
     const lectureKey = lectureKeyFromUrl();
     const prevLecture = lastLectureKey;
     lastLectureKey = lectureKey;
-    const sameLecture = prevLecture === lectureKey && prevLecture !== '' && subtitleManager.getCues().length > 0;
+    const sameLecture =
+      prevLecture === lectureKey &&
+      prevLecture !== '' &&
+      video === attachedVideo &&
+      subtitleManager.getCues().length > 0;
 
     if (sameLecture) {
       const host = document.getElementById(HOST_ID);
@@ -285,6 +296,7 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
         cueUnsub?.();
         cueUnsub = subtitleManager.onCueChange((cue) => {
           uiRenderer.renderSubtitle(cue);
+          refreshNativeCaptionVisibility();
         });
       }
       bindVideoListeners(video);
@@ -325,6 +337,7 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
 
     cueUnsub = subtitleManager.onCueChange((cue) => {
       uiRenderer.renderSubtitle(cue);
+      refreshNativeCaptionVisibility();
     });
 
     bindVideoListeners(video);

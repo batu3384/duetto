@@ -1,6 +1,28 @@
 /**
  * Video player hook for Udemy.
  */
+export function chooseLectureVideo(videos: HTMLVideoElement[]): HTMLVideoElement | null {
+  if (!videos.length) return null;
+  return (
+    videos.find((video) => !video.paused && video.readyState >= 2 && video.videoWidth > 0) ||
+    videos.find((video) => video.readyState >= 2 && video.videoWidth > 0) ||
+    videos.find((video) => video.readyState >= 2) ||
+    videos[0]
+  );
+}
+
+export function findLectureVideo(doc: Document = document): HTMLVideoElement | null {
+  const scoped = Array.from(
+    doc.querySelectorAll('.video-player--container, [data-purpose="video-container"], .video-js')
+  ).flatMap((container) => Array.from(container.querySelectorAll('video')));
+  const curriculumVideos = Array.from(
+    doc.querySelectorAll('[data-purpose="curriculum-item-viewer"] video')
+  );
+  const videos = [...new Set(scoped.length ? scoped : curriculumVideos.length ? curriculumVideos : Array.from(doc.querySelectorAll('video')))]
+    .filter((video): video is HTMLVideoElement => video instanceof HTMLVideoElement);
+  return chooseLectureVideo(videos);
+}
+
 export class PlayerHook {
   private video: HTMLVideoElement | null = null;
   private audioCtx: AudioContext | null = null;
@@ -16,12 +38,12 @@ export class PlayerHook {
     if (this.video && document.contains(this.video)) {
       return this.video;
     }
-    const video = document.querySelector('video') as HTMLVideoElement | null;
-    if (video) {
-      this.bindVideo(video);
-    } else {
-      this.video = null;
+    const next = findLectureVideo();
+    if (!next) {
+      if (this.video) this.resetVideo();
+      return null;
     }
+    if (next !== this.video) this.bindVideo(next);
     return this.video;
   }
 

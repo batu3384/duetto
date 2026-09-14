@@ -1,6 +1,7 @@
 import { SubtitleCue, CourseTranscript } from '../types';
 import {
   parseVTT,
+  primaryLang,
   cleanVttText,
   isRealSubtitleText,
   cueAtTime,
@@ -16,9 +17,11 @@ import { getTranscript, saveTranscript, transcriptStorageId, transcriptTranslati
 import { getPageSettings } from '../services/storage';
 import {
   activateCaptionTracks,
-  collectPerformanceCaptionUrls,
+  collectKnownCaptionUrls,
   fetchUdemyCaptionUrl,
   forgetUdemyCaptionCache,
+  readNativeCaptionLabel,
+  readNativeCaptionText,
   waitForCaptionResourceUrl,
   waitForTrackCues,
 } from '../services/udemyCaptions';
@@ -47,7 +50,7 @@ function userTranslationError(raw: string): string {
 }
 
 function needsTranslation(settings: { sourceLang?: string; targetLang?: string }): boolean {
-  return (settings.sourceLang || 'en').toLowerCase() !== (settings.targetLang || 'tr').toLowerCase();
+  return primaryLang(settings.sourceLang || 'en') !== primaryLang(settings.targetLang || 'tr');
 }
 
 function cacheLooksTranslated(cues: SubtitleCue[]): boolean {
@@ -71,11 +74,28 @@ interface CaptionSource {
   label: string;
 }
 
+function isTrustedCaptionUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    const host = url.hostname.toLowerCase();
+    return (
+      url.protocol === 'https:' &&
+      (host === 'udemy.com' ||
+        host.endsWith('.udemy.com') ||
+        host === 'udemycdn.com' ||
+        host.endsWith('.udemycdn.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+
 function trackElementUrl(element: HTMLTrackElement): string {
   const raw = element.src || element.getAttribute('src') || element.dataset.src || '';
   if (!raw) return '';
   try {
-    return new URL(raw, document.baseURI).href;
+    const url = new URL(raw, document.baseURI).href;
+    return isTrustedCaptionUrl(url) ? url : '';
   } catch {
     return '';
   }
@@ -106,6 +126,7 @@ function fetchCaptionVttViaBackground(url: string): Promise<string | null> {
 }
 
 async function fetchCaptionText(url: string): Promise<string | null> {
+  if (!isTrustedCaptionUrl(url)) return null;
   try {
     const sameOrigin = new URL(url, document.baseURI).origin === window.location.origin;
     const response = await fetch(url, {
@@ -114,7 +135,7 @@ async function fetchCaptionText(url: string): Promise<string | null> {
     });
     if (response.ok) {
       const text = await response.text();
-      if (text.length <= MAX_CAPTION_TEXT_LENGTH) return text;
+      if (text.length <= MAX_CAPTION_TEXT_LENGTH && /-->/m.test(text)) return text;
     }
   } catch (error) {
     console.warn('[Duetto] Failed to fetch track src:', error);
@@ -148,6 +169,8 @@ export class SubtitleManager {
   private sourceLabel = '';
   private sourceLoading = false;
   private sourceError: string | null = null;
+  private nativeSourceLang = 'en';
+  private nativeTargetLang = 'tr';
 
   public onCueChange(listener: (cue: SubtitleCue | null) => void): () => void {
     this.listeners.push(listener);
@@ -196,14 +219,75 @@ export class SubtitleManager {
     this.notifyCueChange(this.currentCue);
   }
 
+  private nativeCaptionRoot(video = this.activeVideo): ParentNode {
+    return (
+      video?.closest('.video-player--container, [data-purpose="video-container"], .video-js') ||
+      video?.parentElement ||
+      document
+    );
+  }
+
+  private nativeCaptionMatchesSource(
+    sourceLang: string,
+    targetLang: string,
+    root: ParentNode,
+    video = this.activeVideo
+  ): boolean {
+    const label = readNativeCaptionLabel(root);
+    if (label) {
+      if (trackMatchesSource('', label, sourceLang)) return true;
+      return !trackMatchesSource('', label, targetLang);
+    }
+    return !Array.from(video?.textTracks || []).some(
+      (track) =>
+        track.mode?.toLowerCase() === 'showing' &&
+        trackMatchesSource(track.language || '', track.label || '', targetLang) &&
+        !trackMatchesSource(track.language || '', track.label || '', sourceLang)
+    );
+  }
+
   public updateTime(currentTime: number): void {
-    if (this.cues.length === 0) return;
+    if (this.cues.length === 0 || this.cues[0]?.id.startsWith('native-')) {
+      this.syncNativeCue(currentTime);
+      if (this.cues.length === 0) return;
+    }
     const matchingCue = cueAtTime(this.cues, currentTime);
     if (matchingCue?.id !== this.currentCue?.id || matchingCue?.translation !== this.currentCue?.translation) {
       this.currentCue = matchingCue;
       this.notifyCueChange(matchingCue);
     }
     if (matchingCue && !matchingCue.translation) this.nudgeLive(currentTime);
+  }
+
+  private syncNativeCue(currentTime: number): void {
+    const root = this.nativeCaptionRoot();
+    if (!this.nativeCaptionMatchesSource(this.nativeSourceLang, this.nativeTargetLang, root)) return;
+    const text = readNativeCaptionText(root);
+    if (!text || !isRealSubtitleText(text)) return;
+    const existing = this.cues.find((cue) => cue.text === text);
+    if (existing) {
+      existing.endTime = Math.max(existing.endTime, currentTime + 4);
+      this.currentCue = existing;
+      this.sourceLoading = false;
+      this.sourceError = null;
+      if (!this.sourceLabel) this.sourceLabel = readNativeCaptionLabel(root) || 'Kaynak altyazı';
+      this.notifyCueChange(existing);
+      if (!existing.translation) this.nudgeLive(currentTime);
+      return;
+    }
+    const cue: SubtitleCue = {
+      id: `native-${this.cues.length}`,
+      startTime: Math.max(0, currentTime - 0.15),
+      endTime: currentTime + 6,
+      text,
+    };
+    this.cues = [...this.cues.filter((item) => item.id.startsWith('native-')), cue].slice(-24);
+    this.sourceLoading = false;
+    this.sourceError = null;
+    this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(root) || 'Kaynak altyazı';
+    this.currentCue = cue;
+    this.notifyCueChange(cue);
+    this.nudgeLive(currentTime);
   }
 
   public rebindVideo(video: HTMLVideoElement): void {
@@ -242,6 +326,8 @@ export class SubtitleManager {
     this.sourceLabel = '';
     this.sourceLoading = false;
     this.sourceError = null;
+    this.nativeSourceLang = 'en';
+    this.nativeTargetLang = 'tr';
     this.notifyCueChange(null);
   }
 
@@ -257,6 +343,10 @@ export class SubtitleManager {
   public async loadSubtitlesForVideo(video: HTMLVideoElement, opts?: { skipCache?: boolean }): Promise<void> {
     this.activeVideo = video;
     this.translateReq += 1;
+    if (this.trackPollInterval) clearInterval(this.trackPollInterval);
+    this.trackPollInterval = null;
+    if (this.trackRefreshTimer) clearTimeout(this.trackRefreshTimer);
+    this.trackRefreshTimer = null;
     this.isTranslating = false;
     this.liveInflight = false;
     this.liveQueued = false;
@@ -288,9 +378,16 @@ export class SubtitleManager {
           void getPageSettings()
             .then((currentSettings) => {
               if (this.activeVideo !== video || this.translateReq !== req) return;
-              if (this.sourceLoading && this.cues.length === 0) return;
-              const source = this.findCaptionSource(video, currentSettings.sourceLang || 'en');
-              if (!source?.fingerprint || source.fingerprint === this.sourceFingerprint) return;
+              const source = this.findCaptionSource(
+                video,
+                currentSettings.sourceLang || 'en',
+                currentSettings.targetLang || 'tr'
+              );
+              if (!source?.fingerprint) return;
+              if (source.fingerprint === this.sourceFingerprint) {
+                if (this.cues.length === 0 && this.sourceLoading) this.startTrackPolling(video);
+                return;
+              }
               void this.loadSubtitlesForVideo(video, { skipCache: true });
             })
             .catch(() => {
@@ -303,17 +400,46 @@ export class SubtitleManager {
     }
 
     this.searchDeadlineTimer = setTimeout(() => {
-      if (this.translateReq !== req || this.cues.length) return;
-      this.sourceLoading = false;
-      this.sourceError = SOURCE_ERROR;
-      this.setTranslationHint(SOURCE_ERROR);
+      void getPageSettings()
+        .then((currentSettings) => {
+          if (this.translateReq !== req || this.cues.length) return;
+          const root = this.nativeCaptionRoot(video);
+          const native = readNativeCaptionText(root);
+          if (
+            native &&
+            isRealSubtitleText(native) &&
+            this.nativeCaptionMatchesSource(
+              currentSettings.sourceLang || 'en',
+              currentSettings.targetLang || 'tr',
+              root,
+              video
+            )
+          ) {
+            this.sourceLoading = false;
+            this.sourceError = null;
+            this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(root) || 'Kaynak altyazı';
+            this.syncNativeCue(video.currentTime);
+            return;
+          }
+          this.sourceLoading = false;
+          this.sourceError = SOURCE_ERROR;
+          this.setTranslationHint(SOURCE_ERROR);
+        })
+        .catch(() => {
+          if (this.translateReq !== req || this.cues.length) return;
+          this.sourceLoading = false;
+          this.sourceError = SOURCE_ERROR;
+          this.setTranslationHint(SOURCE_ERROR);
+        });
     }, CAPTION_SEARCH_DEADLINE_MS);
 
     const settings = await getPageSettings();
     if (this.translateReq !== req) return;
     const sourceLang = settings.sourceLang || 'en';
     const targetLang = settings.targetLang || 'tr';
-    const source = this.findCaptionSource(video, sourceLang);
+    this.nativeSourceLang = sourceLang;
+    this.nativeTargetLang = targetLang;
+    const source = this.findCaptionSource(video, sourceLang, targetLang);
     this.sourceFingerprint = source?.fingerprint || '';
     this.sourceLabel = source?.label || '';
     this.notifyCueChange(this.currentCue);
@@ -347,6 +473,7 @@ export class SubtitleManager {
     if (cues && cues.length > 0) {
       this.applyLoadedCues(cues, video);
       await this.kickTranslate(video.currentTime);
+      if (cues.every((cue) => cue.id.startsWith('native-'))) this.startTrackPolling(video);
     } else {
       this.startTrackPolling(video);
     }
@@ -368,13 +495,14 @@ export class SubtitleManager {
   private async extractAllCues(
     video: HTMLVideoElement,
     expectedRequestId = this.translateReq,
-    opts?: { wait?: boolean }
+    opts?: { wait?: boolean; skipApi?: boolean }
   ): Promise<SubtitleCue[] | null> {
     const wait = opts?.wait === true;
     const settings = await getPageSettings();
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     const targetSourceLang = (settings.sourceLang || 'en').toLowerCase();
-    const source = this.findCaptionSource(video, targetSourceLang);
+    const targetLang = (settings.targetLang || 'tr').toLowerCase();
+    const source = this.findCaptionSource(video, targetSourceLang, targetLang);
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     if (source?.fingerprint) this.sourceFingerprint = source.fingerprint;
     if (source?.label) this.sourceLabel = source.label;
@@ -398,26 +526,33 @@ export class SubtitleManager {
       }
     }
 
-    const apiCaption = await fetchUdemyCaptionUrl(this.currentLectureId, targetSourceLang);
-    if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
-    if (apiCaption?.url) {
-      const apiText = await fetchCaptionText(apiCaption.url);
+    if (!opts?.skipApi) {
+      const apiCaption = await fetchUdemyCaptionUrl(
+        this.currentLectureId,
+        targetSourceLang,
+        this.currentCourseId,
+        targetLang
+      );
       if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
-      if (apiText) {
-        const parsed = parseVTT(apiText);
-        if (parsed.length > 0) {
-          this.sourceLabel = apiCaption.label;
-          this.sourceFingerprint = captionSourceFingerprint(
-            { language: targetSourceLang, label: apiCaption.label },
-            apiCaption.url
-          );
-          return parsed;
+      if (apiCaption?.url) {
+        const apiText = await fetchCaptionText(apiCaption.url);
+        if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
+        if (apiText) {
+          const parsed = parseVTT(apiText);
+          if (parsed.length > 0) {
+            this.sourceLabel = apiCaption.label;
+            this.sourceFingerprint = captionSourceFingerprint(
+              { language: targetSourceLang, label: apiCaption.label },
+              apiCaption.url
+            );
+            return parsed;
+          }
         }
       }
     }
 
-    let resourceUrl = selectCaptionResourceUrl(collectPerformanceCaptionUrls(), targetSourceLang);
-    if (!resourceUrl && wait) resourceUrl = await waitForCaptionResourceUrl(targetSourceLang);
+    let resourceUrl = selectCaptionResourceUrl(collectKnownCaptionUrls(), targetSourceLang, targetLang);
+    if (!resourceUrl && wait) resourceUrl = await waitForCaptionResourceUrl(targetSourceLang, undefined, targetLang);
     if (expectedRequestId !== this.translateReq || this.activeVideo !== video) return null;
     if (resourceUrl) {
       const resourceText = await fetchCaptionText(resourceUrl);
@@ -436,17 +571,37 @@ export class SubtitleManager {
       }
     }
 
+    const nativeRoot = this.nativeCaptionRoot(video);
+    const native = readNativeCaptionText(nativeRoot);
+    if (
+      native &&
+      isRealSubtitleText(native) &&
+      this.nativeCaptionMatchesSource(targetSourceLang, targetLang, nativeRoot)
+    ) {
+      this.sourceLabel = this.sourceLabel || readNativeCaptionLabel(nativeRoot) || 'Kaynak altyazı';
+      this.sourceError = null;
+      return [
+        {
+          id: 'native-0',
+          startTime: Math.max(0, video.currentTime - 0.15),
+          endTime: video.currentTime + 6,
+          text: native,
+        },
+      ];
+    }
+
     return null;
   }
 
-  private findCaptionSource(video: HTMLVideoElement, sourceLang: string): CaptionSource | null {
-    const trackElements = Array.from(video.querySelectorAll('track')).filter(
-      (el) => isCaptionTrack(el)
+  private findCaptionSource(video: HTMLVideoElement, sourceLang: string, targetLang?: string): CaptionSource | null {
+    const root =
+      video.closest('.video-player--container, [data-purpose="video-container"], .video-js') || video;
+    const trackElements = Array.from(root.querySelectorAll('track')).filter((el) => isCaptionTrack(el));
+    const videos = new Set<HTMLVideoElement>([video, ...Array.from(root.querySelectorAll('video'))]);
+    const validTracks = [...videos].flatMap((el) =>
+      el.textTracks ? Array.from(el.textTracks).filter(isValidCaptionTrack) : []
     );
-    const validTracks = video.textTracks
-      ? Array.from(video.textTracks).filter(isValidCaptionTrack)
-      : [];
-    const matchingTrack = selectPreferredCaptionTrack(validTracks, sourceLang);
+    const matchingTrack = selectPreferredCaptionTrack(validTracks, sourceLang, targetLang);
 
     if (matchingTrack) {
       const trackElement = trackElements.find((el) => el.track === matchingTrack) || null;
@@ -463,7 +618,7 @@ export class SubtitleManager {
 
     const trackElement = trackElements.find((el) =>
       trackMatchesSource(el.srclang || '', el.label || '', sourceLang)
-    );
+    ) || null;
     if (!trackElement) return null;
     const language = trackElement.srclang || '';
     const label = trackElement.label || language || 'Kaynak altyazı';
@@ -477,34 +632,52 @@ export class SubtitleManager {
 
   private startTrackPolling(video: HTMLVideoElement): void {
     if (this.trackPollInterval) clearInterval(this.trackPollInterval);
+    this.trackPollInterval = null;
     let attempts = 0;
     const pollReq = this.translateReq;
     let pollBusy = false;
+    let interval: ReturnType<typeof setInterval> | null = null;
 
     const tick = async () => {
       if (pollBusy) return;
       if (this.translateReq !== pollReq) {
-        if (this.trackPollInterval) clearInterval(this.trackPollInterval);
-        this.trackPollInterval = null;
+        if (interval) clearInterval(interval);
+        if (this.trackPollInterval === interval) this.trackPollInterval = null;
         return;
       }
       pollBusy = true;
       attempts++;
       try {
-        const cues = await this.extractAllCues(video, pollReq);
-        if (cues && cues.length > 0) {
-          if (this.trackPollInterval) clearInterval(this.trackPollInterval);
-          this.trackPollInterval = null;
+        const nativeAlreadyLoaded =
+          this.cues.length > 0 && this.cues.every((cue) => cue.id.startsWith('native-'));
+        const cues = await this.extractAllCues(video, pollReq, {
+          skipApi: nativeAlreadyLoaded && attempts % 4 !== 0,
+        });
+        const nativeOnly = !!cues?.length && cues.every((cue) => cue.id.startsWith('native-'));
+        if (cues && cues.length > 0 && !nativeOnly) {
+          if (interval) clearInterval(interval);
+          if (this.trackPollInterval === interval) this.trackPollInterval = null;
           if (this.translateReq !== pollReq) return;
           this.applyLoadedCues(cues, video);
           await this.kickTranslate(video.currentTime);
+        } else if (nativeOnly && this.cues.length === 0) {
+          this.applyLoadedCues(cues, video);
+          await this.kickTranslate(video.currentTime);
+        } else if (
+          this.cues.length > 0 &&
+          this.cues.every((cue) => cue.id.startsWith('native-')) &&
+          attempts >= CAPTION_POLL_ATTEMPTS
+        ) {
+          if (interval) clearInterval(interval);
+          if (this.trackPollInterval === interval) this.trackPollInterval = null;
         } else if (
           attempts >= CAPTION_POLL_ATTEMPTS &&
           this.translateReq === pollReq &&
-          this.activeVideo === video
+          this.activeVideo === video &&
+          this.cues.length === 0
         ) {
-          if (this.trackPollInterval) clearInterval(this.trackPollInterval);
-          this.trackPollInterval = null;
+          if (interval) clearInterval(interval);
+          if (this.trackPollInterval === interval) this.trackPollInterval = null;
           this.sourceLoading = false;
           this.sourceError = SOURCE_ERROR;
           this.setTranslationHint(SOURCE_ERROR);
@@ -515,9 +688,10 @@ export class SubtitleManager {
     };
 
     void tick();
-    this.trackPollInterval = setInterval(() => {
+    interval = setInterval(() => {
       void tick();
     }, CAPTION_POLL_INTERVAL_MS);
+    this.trackPollInterval = interval;
   }
 
   public applyTranslationPatches(patches: TranslationPatch[], meta?: { lectureId?: string; requestId?: number }): void {
@@ -629,15 +803,21 @@ export class SubtitleManager {
       const response = await this.sendTranslate(
         windowCues,
         aroundTime,
-        transcriptTranslationFingerprint(settings)
+        transcriptTranslationFingerprint(settings),
+        settings.sourceLang || 'en',
+        settings.targetLang || 'tr'
       );
       if (requestId === this.translateReq && lectureId === this.currentLectureId) {
         this.mergeTranslated(response, { lectureId, requestId });
       }
     } finally {
-      if (requestId !== this.translateReq || lectureId !== this.currentLectureId) return;
+      if (requestId !== this.translateReq) return;
       this.liveInflight = false;
       this.isTranslating = false;
+      if (lectureId !== this.currentLectureId) {
+        this.liveQueued = false;
+        return;
+      }
       if (this.liveQueued) {
         this.liveQueued = false;
         void this.ensureLive(this.activeVideo?.currentTime ?? aroundTime);
@@ -648,8 +828,10 @@ export class SubtitleManager {
   private sendTranslate(
     cues: SubtitleCue[],
     aroundTime: number,
-    translationFingerprint: string
-  ): Promise<{ success: boolean; cues?: SubtitleCue[]; error?: string }> {
+    translationFingerprint: string,
+    sourceLang: string,
+    targetLang: string
+  ): Promise<{ success: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean }> {
     const lectureId = this.currentLectureId;
     const requestId = this.translateReq;
     return new Promise((resolve) => {
@@ -676,6 +858,8 @@ export class SubtitleManager {
               lectureId,
               requestId,
               priority: 'live',
+              sourceLang,
+              targetLang,
               sourceFingerprint: this.sourceFingerprint,
               translationFingerprint,
             },
@@ -698,9 +882,10 @@ export class SubtitleManager {
   }
 
   private mergeTranslated(
-    response: { success?: boolean; cues?: SubtitleCue[]; error?: string },
+    response: { success?: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean },
     meta: { lectureId: string; requestId: number }
   ): void {
+    if (response?.aborted) return;
     if (response?.success && response.cues?.length) {
       const byId = new Map(response.cues.filter((c) => c.translation).map((c) => [c.id, c.translation as string]));
       if (byId.size) {

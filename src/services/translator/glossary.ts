@@ -68,14 +68,21 @@ export function extractGlossaryTerms(text: string): string[] {
   return Array.from(found);
 }
 
-export function buildTranslationSystemPrompt(targetLangCode: string = 'tr', detectedTerms: string[] = []): string {
-  const langName = LANGUAGE_NAMES[targetLangCode.toLowerCase()] || targetLangCode.toUpperCase();
+export function buildTranslationSystemPrompt(
+  targetLangCode: string = 'tr',
+  detectedTerms: string[] = [],
+  sourceLangCode: string = 'en'
+): string {
+  const targetKey = targetLangCode.toLowerCase().replace('_', '-').split('-')[0];
+  const langName = LANGUAGE_NAMES[targetKey] || targetLangCode.toUpperCase();
+  const sourceKey = sourceLangCode.toLowerCase().replace('_', '-').split('-')[0];
+  const sourceName = LANGUAGE_NAMES[sourceKey] || sourceLangCode.toUpperCase();
   const termsList = detectedTerms.length > 0 
     ? `\nDo not translate these technical terms: [${detectedTerms.join(', ')}]`
     : '';
 
   return `You are a world-class educational and technical translation engine.
-Translate the labeled lecture transcript lines into natural, fluid, conversational ${langName}.
+Translate the labeled lecture transcript lines from ${sourceName} into natural, fluid, conversational ${langName}.
 
 RULES:
 1. Do NOT produce robotic or word-by-word translations. Maintain natural grammar and teacher tone in ${langName}.

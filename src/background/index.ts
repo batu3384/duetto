@@ -68,8 +68,13 @@ async function handleCaptionFetch(
       sendResponse({ success: false });
       return;
     }
+    const contentType = response.headers.get('content-type') || '';
+    if (/image|audio|video|html/i.test(contentType)) {
+      sendResponse({ success: false });
+      return;
+    }
     const text = await response.text();
-    if (text.length > MAX_CAPTION_TEXT_LENGTH) {
+    if (text.length > MAX_CAPTION_TEXT_LENGTH || !/-->/m.test(text)) {
       sendResponse({ success: false });
       return;
     }
@@ -79,7 +84,7 @@ async function handleCaptionFetch(
   }
 }
 
-type TranslationResponse = { success: boolean; cues?: SubtitleCue[]; error?: string };
+type TranslationResponse = { success: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean };
 type TranslationSubscriber = {
   tabId: number | undefined;
   payload: TranslatePayload;
@@ -91,6 +96,8 @@ type TranslatePayload = {
   lectureId?: string;
   requestId?: number;
   priority?: 'live' | 'rest';
+  sourceLang?: string;
+  targetLang?: string;
   sourceFingerprint?: string;
   translationFingerprint?: string;
 };
@@ -114,7 +121,8 @@ function detachTabFromTranslationJob(tabKey: number): void {
     const subscriberKey = typeof subscriber.tabId === 'number' ? subscriber.tabId : -1;
     if (subscriberKey === tabKey) {
       subscriber.sendResponse({
-        success: true,
+        success: false,
+        aborted: true,
         cues: Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
       });
     }
@@ -128,17 +136,6 @@ function respondToSubscribers(job: TranslationJob, responseFor: (subscriber: Tra
   for (const subscriber of job.subscribers) {
     subscriber.sendResponse(responseFor(subscriber));
   }
-}
-
-function liveTranslationScopeMatch(a: TranslatePayload, b: TranslatePayload): boolean {
-  return (
-    a.priority === 'live' &&
-    b.priority === 'live' &&
-    typeof a.lectureId === 'string' &&
-    a.lectureId === b.lectureId &&
-    a.sourceFingerprint === b.sourceFingerprint &&
-    a.translationFingerprint === b.translationFingerprint
-  );
 }
 
 function translatedCuesForSubscriber(
@@ -240,6 +237,8 @@ async function handleTranslateRequest(
     lectureId?: string;
     requestId?: number;
     priority?: 'live' | 'rest';
+    sourceLang?: string;
+    targetLang?: string;
     sourceFingerprint?: string;
     translationFingerprint?: string;
   },
@@ -256,18 +255,6 @@ async function handleTranslateRequest(
     return;
   }
 
-  const tabJob = tabTranslationJobs.get(abortKey);
-  const tabPayload = tabJob?.subscribers[0]?.payload;
-  if (
-    tabJob &&
-    !tabJob.abort.signal.aborted &&
-    tabPayload &&
-    liveTranslationScopeMatch(typedPayload, tabPayload)
-  ) {
-    tabJob.subscribers.push({ tabId, payload: typedPayload, sendResponse });
-    return;
-  }
-
   detachTabFromTranslationJob(abortKey);
   const job: TranslationJob = {
     key,
@@ -280,13 +267,24 @@ async function handleTranslateRequest(
   try {
     const cues = Array.isArray(typedPayload?.cues) ? typedPayload.cues : [];
     const settings = await getSettings({ fresh: true });
+    const requestSettings = {
+      ...settings,
+      sourceLang:
+        typeof typedPayload.sourceLang === 'string' && typedPayload.sourceLang.trim()
+          ? typedPayload.sourceLang
+          : settings.sourceLang,
+      targetLang:
+        typeof typedPayload.targetLang === 'string' && typedPayload.targetLang.trim()
+          ? typedPayload.targetLang
+          : settings.targetLang,
+    };
     const lectureId = typeof typedPayload?.lectureId === 'string' ? typedPayload.lectureId : '';
     const requestId = typeof typedPayload?.requestId === 'number' ? typedPayload.requestId : 0;
     const aroundTime =
       typeof typedPayload?.aroundTime === 'number' && Number.isFinite(typedPayload.aroundTime)
         ? typedPayload.aroundTime
         : 0;
-    const translatedCues = await translateCues(cues, settings, (done, total) => {
+    const translatedCues = await translateCues(cues, requestSettings, (done, total) => {
       for (const subscriber of job.subscribers) {
         pingTab(subscriber.tabId, {
           type: 'TRANSLATE_PROGRESS',
@@ -310,6 +308,14 @@ async function handleTranslateRequest(
         }
       },
     });
+    if (job.abort.signal.aborted) {
+      respondToSubscribers(job, (subscriber) => ({
+        success: false,
+        aborted: true,
+        cues: Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
+      }));
+      return;
+    }
     respondToSubscribers(job, (subscriber) => ({
       success: true,
       cues: translatedCuesForSubscriber(
@@ -321,7 +327,8 @@ async function handleTranslateRequest(
     const err = error as { name?: string; message?: string };
     if (err?.name === 'AbortError' || job.abort.signal.aborted) {
       respondToSubscribers(job, (subscriber) => ({
-        success: true,
+        success: false,
+        aborted: true,
         cues: Array.isArray(subscriber.payload.cues) ? subscriber.payload.cues : [],
       }));
       return;

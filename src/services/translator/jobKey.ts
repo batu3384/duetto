@@ -11,9 +11,14 @@ export function translationJobKey(payload: {
     typeof payload?.sourceFingerprint === 'string' ? payload.sourceFingerprint : '';
   const translationFingerprint =
     typeof payload?.translationFingerprint === 'string' ? payload.translationFingerprint : '';
-  const cueIds = Array.isArray(payload?.cues)
-    ? payload.cues.map((cue) => (typeof cue?.id === 'string' ? cue.id : '')).join(',')
+  const cueIdentity = Array.isArray(payload?.cues)
+    ? payload.cues
+        .map((cue) => {
+          if (typeof cue?.id !== 'string') return '';
+          return `${cue.id}:${cue.startTime}:${cue.endTime}:${cue.text}`;
+        })
+        .join(',')
     : '';
-  if (!lectureId || !sourceFingerprint || !translationFingerprint || !cueIds) return null;
-  return `${lectureId}|${sourceFingerprint}|${translationFingerprint}|${cueIds}`;
+  if (!lectureId || !sourceFingerprint || !translationFingerprint || !cueIdentity) return null;
+  return `${lectureId}|${sourceFingerprint}|${translationFingerprint}|${cueIdentity}`;
 }
