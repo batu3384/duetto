@@ -36,8 +36,11 @@ const DOCK_CSS = `
 }
 [${ATTR}="below"] .vjs-control-bar,
 [${ATTR}="below"] [data-purpose="video-controls"],
-[${ATTR}="below"] [data-purpose="video-control-bar"] {
+[${ATTR}="below"] [data-purpose="video-control-bar"],
+[${ATTR}="below"] [class*="control-bar"],
+[${ATTR}="below"] [class*="video-controls"] {
   bottom: var(--duetto-dock-h, 96px) !important;
+  z-index: 30 !important;
 }
 `;
 

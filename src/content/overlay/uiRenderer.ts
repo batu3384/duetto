@@ -61,10 +61,7 @@ function pendingTranslationMessage(settings: ExtensionSettings): { text: string;
   if (!hasKey) {
     return { text: 'Gemini anahtarı gerekli — uzantı simgesi → Gemini', isError: true };
   }
-  if (subtitleManager.isTranslatingNow()) {
-    return { text: 'Çeviriliyor…', isError: false };
-  }
-  return { text: '', isError: false };
+  return { text: 'Çeviriliyor…', isError: false };
 }
 
 function translatePhraseViaBg(text: string, targetLang: string): Promise<string> {
@@ -231,14 +228,24 @@ export class UIRenderer {
       }
     }
 
+    const focusedWord = (container.querySelector('.sub-word:focus') as HTMLElement | null)?.dataset.word || '';
+
     container.innerHTML = `
       <div class="sub-box" id="sub-drag-box" title="${escapeHtml(
         subtitleManager.getSourceStatusText() ? `Kaynak altyazı: ${subtitleManager.getSourceStatusText()}` : ''
       )}" style="${boxStyle}">
         ${frostHtml}
+        <div class="sub-grip" aria-hidden="true"></div>
         <div class="sub-box-inner">${contentHtml}</div>
       </div>
     `;
+
+    if (focusedWord) {
+      const next = Array.from(container.querySelectorAll<HTMLElement>('.sub-word')).find(
+        (el) => el.dataset.word === focusedWord
+      );
+      next?.focus();
+    }
 
     this.attachWordHoverListeners(container);
     this.attachCopyListener(container);
@@ -257,12 +264,16 @@ export class UIRenderer {
       ? `${error} Tıkla: altyazıyı yenile.`
       : `Kaynak altyazı: ${label}. Tıkla: altyazıyı yenile.`;
     source.setAttribute('aria-busy', subtitleManager.isSourceLoading() ? 'true' : 'false');
-    source.setAttribute('aria-live', error ? 'assertive' : 'polite');
     source.setAttribute(
       'aria-label',
       error ? 'Kaynak altyazı bulunamadı. Yenilemek için tıkla' : `Kaynak altyazı: ${label}`
     );
     source.classList.toggle('source-error', !!error);
+    const live = shadowOverlay.getToolbarContainer()?.querySelector('#source-live');
+    if (live) {
+      const announce = error || (subtitleManager.isSourceLoading() ? label : '');
+      if (live.textContent !== announce) live.textContent = announce;
+    }
   }
 
   private applyPlacement(container: HTMLElement, below: boolean, fromTop: boolean, offset: number): void {
@@ -368,9 +379,11 @@ export class UIRenderer {
     if (!video || video.paused) return;
     video.pause();
     this.holdPause = true;
+    shadowOverlay.getSubtitleContainer()?.classList.add('hover-paused');
   }
 
   private releasePause(): void {
+    shadowOverlay.getSubtitleContainer()?.classList.remove('hover-paused');
     if (!this.holdPause) return;
     this.holdPause = false;
     const video = playerHook.findVideoElement();
@@ -478,12 +491,10 @@ export class UIRenderer {
   }
 
   private attachDragListener(container: HTMLElement): void {
-    const box = container.querySelector('#sub-drag-box') as HTMLElement;
-    if (!box) return;
+    const grip = container.querySelector('.sub-grip') as HTMLElement | null;
+    if (!grip) return;
 
-    box.addEventListener('mousedown', (e) => {
-      if ((e.target as HTMLElement).closest('.sub-word')) return;
-
+    grip.addEventListener('mousedown', (e) => {
       this.isDragging = true;
       this.dragMoved = false;
       this.dragStartY = e.clientY;
@@ -551,13 +562,14 @@ export class UIRenderer {
       : `Kaynak altyazı: ${sourceText}. Tıkla: altyazıyı yenile.`;
 
     toolbar.innerHTML = `
+      <span id="source-live" class="sr-only" role="status" aria-live="polite"></span>
       <button type="button" class="tool-btn ${isDualOn ? 'active' : ''}" id="btn-toggle-sub" aria-pressed="${isDualOn ? 'true' : 'false'}" aria-label="Çift altyazı aç kapat" title="Çift Altyazı (D)">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path><path d="M8 9h8"></path><path d="M8 13h6"></path></svg>
       </button>
       <button type="button" class="tool-btn ${below ? 'active' : ''}" id="btn-dock" aria-pressed="${below ? 'true' : 'false'}" aria-label="Altyazıyı video altına al" title="Konum: ${below ? 'Video altında' : 'Video üstünde'}">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="14" rx="2"></rect><path d="M3 21h18"></path></svg>
       </button>
-      <button type="button" class="tool-source ${sourceError ? 'source-error' : ''}" id="btn-reload-captions" aria-live="${sourceError ? 'assertive' : 'polite'}" aria-busy="${sourceLoading ? 'true' : 'false'}" aria-label="${escapeHtml(
+      <button type="button" class="tool-source ${sourceError ? 'source-error' : ''}" id="btn-reload-captions" aria-busy="${sourceLoading ? 'true' : 'false'}" aria-label="${escapeHtml(
         sourceError ? 'Kaynak altyazı bulunamadı. Yenilemek için tıkla' : `Kaynak altyazı: ${sourceText}`
       )}" title="${escapeHtml(sourceTitle)}">${escapeHtml(sourceText)}</button>
       <span class="tool-sep" aria-hidden="true"></span>

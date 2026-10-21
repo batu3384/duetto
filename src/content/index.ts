@@ -3,6 +3,7 @@ import { subtitleManager } from './subtitleManager';
 import { shadowOverlay } from './overlay/shadowRoot';
 import { uiRenderer } from './overlay/uiRenderer';
 import { setupKeyboardShortcuts, setShortcutsEnabled } from './shortcuts';
+import { shouldKeepLectureCues } from './captionSearchState';
 import { applySettingsCache, extensionAlive, getPageSettings, isStaleExtensionError, mergeSettings, SECRET_KEY, SETTINGS_KEY, settingsForPage } from '../services/storage';
 import { consumePendingSeek, setPendingSeek } from '../services/db';
 import { ExtensionSettings } from '../types';
@@ -25,6 +26,7 @@ let lastLectureKey = '';
 let attaching = false;
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 let staleStopped = false;
+let observedRoot: Node | null = null;
 let appliedPageSettings: ExtensionSettings | null = null;
 
 function showStaleExtensionBanner(): void {
@@ -241,19 +243,36 @@ function bindVideoListeners(video: HTMLVideoElement): void {
   if (attachedVideo && onRateChange) attachedVideo.removeEventListener('ratechange', onRateChange);
   attachedVideo = video;
   onTimeUpdate = () => subtitleManager.updateTime(video.currentTime);
-  onRateChange = () => uiRenderer.renderToolbar();
+  onRateChange = () => {
+    playerHook.noteExternalRate();
+    uiRenderer.renderToolbar();
+  };
   video.addEventListener('timeupdate', onTimeUpdate);
   video.addEventListener('ratechange', onRateChange);
 }
 
 function observePlayer() {
+  const arm = (root: Node) => {
+    if (observedRoot === root) return;
+    playerObserver?.disconnect();
+    playerObserver = new MutationObserver(schedule);
+    playerObserver.observe(root, { childList: true, subtree: true });
+    observedRoot = root;
+  };
+
   const runCheck = () => {
     if (guardStaleExtension()) return;
     if (attaching) return;
     const video = playerHook.findVideoElement();
-    if (!video) return;
+    if (!video) {
+      arm(document.body);
+      return;
+    }
     const container = findContainer(video);
-    if (!container) return;
+    if (!container) {
+      arm(document.body);
+      return;
+    }
 
     const lectureKey = lectureKeyFromUrl();
     const hostGone = !document.getElementById(HOST_ID);
@@ -263,20 +282,17 @@ function observePlayer() {
     if (!isInitialized || hostGone || videoChanged || lectureChanged) {
       setupPlayerInstance(video, container);
     }
+    arm(container);
   };
 
-  const check = () => {
+  const schedule = () => {
     if (checkTimer) clearTimeout(checkTimer);
     checkTimer = setTimeout(runCheck, 80);
   };
 
-  check();
-  playerObserver?.disconnect();
-  playerObserver = new MutationObserver(() => check());
-  playerObserver.observe(document.body, { childList: true, subtree: true });
-
+  schedule();
   if (urlPoll) clearInterval(urlPoll);
-  urlPoll = setInterval(check, 800);
+  urlPoll = setInterval(schedule, 800);
 }
 
 function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
@@ -286,13 +302,14 @@ function setupPlayerInstance(video: HTMLVideoElement, container: HTMLElement) {
     const lectureKey = lectureKeyFromUrl();
     const prevLecture = lastLectureKey;
     lastLectureKey = lectureKey;
-    const sameLecture =
-      prevLecture === lectureKey &&
-      prevLecture !== '' &&
-      video === attachedVideo &&
-      subtitleManager.getCues().length > 0;
+    const cues = subtitleManager.getCues();
+    const keep = shouldKeepLectureCues({
+      sameLecture: prevLecture === lectureKey && prevLecture !== '',
+      cueCount: cues.length,
+      nativeOnly: cues.length > 0 && cues.every((cue) => cue.id.startsWith('native-')),
+    });
 
-    if (sameLecture) {
+    if (keep) {
       const host = document.getElementById(HOST_ID);
       if (!host || !container.contains(host)) {
         shadowOverlay.init(container);

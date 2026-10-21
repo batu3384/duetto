@@ -73,7 +73,8 @@ export function setupKeyboardShortcuts(): () => void {
     ) {
       return;
     }
-    if (!shortcutsEnabled || !isDuettoShortcutKey(e.key, e.ctrlKey, e.metaKey, e.altKey)) return;
+    if (!shortcutsEnabled || !playerHook.findVideoElement()) return;
+    if (!isDuettoShortcutKey(e.key, e.ctrlKey, e.metaKey, e.altKey)) return;
     e.preventDefault();
     e.stopPropagation();
     void runShortcut(e);

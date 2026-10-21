@@ -160,7 +160,7 @@ export class ShadowOverlayHost {
       }
 
       .sub-box {
-        pointer-events: auto;
+        pointer-events: none;
         position: relative;
         isolation: auto;
         overflow: visible;
@@ -171,8 +171,27 @@ export class ShadowOverlayHost {
         gap: 4px;
         max-width: 100%;
         line-height: 1.35;
-        cursor: grab;
         user-select: text;
+      }
+      .sub-grip {
+        pointer-events: auto;
+        cursor: grab;
+        height: 8px;
+        margin: -2px 20% 2px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.28);
+      }
+      .sub-grip:active {
+        cursor: grabbing;
+      }
+      .sub-container.hover-paused .sub-box-inner::after {
+        content: 'Duraklatıldı';
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        color: #ffffff;
       }
       .sub-box-frost {
         position: absolute;
@@ -187,6 +206,7 @@ export class ShadowOverlayHost {
         display: flex;
         flex-direction: column;
         gap: 6px;
+        pointer-events: none;
       }
       .dock-below .sub-box {
         padding: 8px 22px 10px;
@@ -195,9 +215,6 @@ export class ShadowOverlayHost {
       .dock-below .sub-primary,
       .dock-below .sub-secondary {
         line-height: 1.42;
-      }
-      .sub-box:active {
-        cursor: grabbing;
       }
 
       .sub-primary {
@@ -214,6 +231,7 @@ export class ShadowOverlayHost {
 
       .sub-word {
         display: inline-block;
+        pointer-events: auto;
         cursor: pointer;
         padding: 0 2px;
         margin: 0 1px;
@@ -247,9 +265,9 @@ export class ShadowOverlayHost {
         overflow-wrap: anywhere;
       }
       .sub-secondary.sub-pending {
-        font-weight: 500;
+        font-weight: 600;
         font-style: italic;
-        opacity: 0.45;
+        opacity: 0.92;
       }
       .sub-secondary.sub-pending.sub-error {
         font-style: normal;
@@ -347,10 +365,22 @@ export class ShadowOverlayHost {
         opacity: 0;
         transition: opacity 0.15s ease;
         z-index: 20;
-        pointer-events: auto;
+        pointer-events: none;
       }
       :host(.player-hot) .toolbar, .toolbar.show, .toolbar:focus-within {
         opacity: 1;
+        pointer-events: auto;
+      }
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
       .tool-btn {
         background: transparent;

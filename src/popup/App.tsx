@@ -6,7 +6,7 @@ import { PlayerTab } from './components/PlayerTab';
 import { AiTab } from './components/AiTab';
 import { NotesTab } from './components/NotesTab';
 import { Captions, Sliders, Cpu, StickyNote } from 'lucide-react';
-import { sendToUdemyTab } from './sendToTab';
+import { sendToUdemyTab, setSendErrorHandler } from './sendToTab';
 
 type TabKey = 'subtitles' | 'player' | 'ai' | 'notes';
 
@@ -14,6 +14,7 @@ export default function App() {
   const [settings, setSettings] = useState<ExtensionSettings>(DEFAULT_SETTINGS);
   const [activeTab, setActiveTab] = useState<TabKey>('subtitles');
   const [loading, setLoading] = useState<boolean>(true);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   useEffect(() => {
     getSettings().then((data) => {
@@ -35,7 +36,13 @@ export default function App() {
     return () => {
       chrome.storage.onChanged.removeListener(onStore);
       window.removeEventListener('pagehide', flush);
+      setSendErrorHandler(null);
     };
+  }, []);
+
+  useEffect(() => {
+    setSendErrorHandler(setSendError);
+    return () => setSendErrorHandler(null);
   }, []);
 
   const handleUpdateSettings = async (updated: Partial<ExtensionSettings>) => {
@@ -89,6 +96,15 @@ export default function App() {
           </label>
         </div>
       </header>
+
+      {sendError && (
+        <div role="alert" className="mx-3.5 mt-2 px-2.5 py-2 rounded-lg border border-danger/40 bg-danger-dim text-danger-fg text-xs flex items-start justify-between gap-2">
+          <span>{sendError}</span>
+          <button type="button" className="shrink-0 min-h-8 px-2 underline" onClick={() => setSendError(null)}>
+            Kapat
+          </button>
+        </div>
+      )}
 
       <div className="px-3.5 pt-2.5 pb-1 shrink-0">
         <nav className="flex items-center p-0.5 bg-raised rounded-xl border border-line" role="tablist" aria-label="Ayar sekmeleri">

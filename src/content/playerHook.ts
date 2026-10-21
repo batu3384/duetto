@@ -1,6 +1,14 @@
 /**
  * Video player hook for Udemy.
  */
+export function displayedPlaybackSpeed(
+  isSilenceSkipping: boolean,
+  normalSpeed: number,
+  playbackRate: number
+): number {
+  return isSilenceSkipping ? normalSpeed : playbackRate;
+}
+
 export function chooseLectureVideo(videos: HTMLVideoElement[]): HTMLVideoElement | null {
   if (!videos.length) return null;
   return (
@@ -33,6 +41,8 @@ export class PlayerHook {
   private silenceRaf: number | null = null;
   private silenceThreshold: number = -45;
   private playResumeHandler: (() => void) | null = null;
+  private silenceSource: MediaStreamAudioSourceNode | null = null;
+  private silenceSink: GainNode | null = null;
 
   public findVideoElement(): HTMLVideoElement | null {
     if (this.video && document.contains(this.video)) {
@@ -63,6 +73,7 @@ export class PlayerHook {
 
   public resetVideo(): void {
     this.stopSilenceLoop();
+    this.releaseSilenceTap();
     if (this.video && this.playResumeHandler) {
       this.video.removeEventListener('play', this.playResumeHandler);
     }
@@ -72,17 +83,21 @@ export class PlayerHook {
 
   public setSpeed(speed: number): void {
     const video = this.findVideoElement();
-    if (video) {
-      this.normalSpeed = speed;
-      if (!this.isSilenceSkipping) {
-        video.playbackRate = speed;
-      }
+    this.normalSpeed = speed;
+    if (video && !this.isSilenceSkipping) {
+      video.playbackRate = speed;
     }
+  }
+
+  public noteExternalRate(): void {
+    if (this.isSilenceSkipping) return;
+    const video = this.video;
+    if (video && document.contains(video)) this.normalSpeed = video.playbackRate;
   }
 
   public getSpeed(): number {
     const video = this.findVideoElement();
-    return video ? video.playbackRate : 1.0;
+    return displayedPlaybackSpeed(this.isSilenceSkipping, this.normalSpeed, video ? video.playbackRate : this.normalSpeed);
   }
 
   public getCurrentTime(): number {
@@ -155,6 +170,7 @@ export class PlayerHook {
         video.playbackRate = this.normalSpeed;
       }
       this.isSilenceSkipping = false;
+      this.releaseSilenceTap();
       return;
     }
 
@@ -162,29 +178,62 @@ export class PlayerHook {
     if (!video) return;
 
     try {
-      if (!this.audioCtx) {
-        const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-        this.audioCtx = new AudioContextClass();
-        this.analyser = this.audioCtx.createAnalyser();
-        this.analyser.fftSize = 512;
-        this.analyser.smoothingTimeConstant = 0.1;
-        this.analyser.connect(this.audioCtx.destination);
+      if (!this.attachSilenceStream(video)) {
+        this.stopSilenceLoop();
+        console.warn('[Duetto] Sessizlik atlama bu videoda captureStream açamadı.');
+        return;
       }
-
-      if (this.connectedVideo !== video && this.audioCtx && this.analyser) {
-        try {
-          const source = this.audioCtx.createMediaElementSource(video);
-          source.connect(this.analyser);
-          this.connectedVideo = video;
-        } catch {
-          this.connectedVideo = video;
-        }
-      }
-
+      if (this.audioCtx?.state === 'suspended') void this.audioCtx.resume().catch(() => {});
       this.startSilenceLoop();
     } catch (e) {
       console.warn('[Duetto] WebAudio silence detection attach error:', e);
     }
+  }
+
+  private ensureSilenceGraph(): boolean {
+    if (this.audioCtx && this.analyser && this.silenceSink) return true;
+    const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    this.audioCtx = new AudioContextClass();
+    this.analyser = this.audioCtx.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.analyser.smoothingTimeConstant = 0.1;
+    this.silenceSink = this.audioCtx.createGain();
+    this.silenceSink.gain.value = 0;
+    this.analyser.connect(this.silenceSink);
+    this.silenceSink.connect(this.audioCtx.destination);
+    return true;
+  }
+
+  /** captureStream keeps the element audible. createMediaElementSource would mute it. */
+  private attachSilenceStream(video: HTMLVideoElement): boolean {
+    if (!this.ensureSilenceGraph() || !this.audioCtx || !this.analyser) return false;
+    const capture = (video as HTMLVideoElement & { captureStream?: () => MediaStream }).captureStream?.bind(video);
+    if (!capture) return false;
+    if (this.connectedVideo === video && this.silenceSource) return true;
+    let stream: MediaStream;
+    try {
+      stream = capture();
+    } catch {
+      return false;
+    }
+    try {
+      this.silenceSource?.disconnect();
+      const source = this.audioCtx.createMediaStreamSource(stream);
+      source.connect(this.analyser);
+      this.silenceSource = source;
+      this.connectedVideo = video;
+      return true;
+    } catch {
+      this.silenceSource = null;
+      this.connectedVideo = null;
+      return false;
+    }
+  }
+
+  private releaseSilenceTap(): void {
+    this.silenceSource?.disconnect();
+    this.silenceSource = null;
+    this.connectedVideo = null;
   }
 
   private stopSilenceLoop(): void {
