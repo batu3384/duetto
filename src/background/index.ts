@@ -47,7 +47,7 @@ const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
 async function handleCaptionFetch(
   rawUrl: unknown,
   sender: chrome.runtime.MessageSender,
-  sendResponse: (response: { success: boolean; text?: string }) => void
+  sendResponse: (response: { success: boolean; text?: string; reason?: 'timeout' | 'http' | 'type' | 'denied' }) => void
 ): Promise<void> {
   const pageUrl = sender.url || sender.tab?.url || '';
   if (
@@ -56,7 +56,7 @@ async function handleCaptionFetch(
     typeof rawUrl !== 'string' ||
     !isUdemyCaptionUrl(rawUrl)
   ) {
-    sendResponse({ success: false });
+    sendResponse({ success: false, reason: 'denied' });
     return;
   }
   try {
@@ -66,22 +66,24 @@ async function handleCaptionFetch(
       signal: AbortSignal.timeout(CAPTION_FETCH_TIMEOUT_MS),
     });
     if (!response.ok) {
-      sendResponse({ success: false });
+      sendResponse({ success: false, reason: 'http' });
       return;
     }
     const contentType = response.headers.get('content-type') || '';
     if (/image|audio|video|html/i.test(contentType)) {
-      sendResponse({ success: false });
+      sendResponse({ success: false, reason: 'type' });
       return;
     }
     const text = await response.text();
     if (text.length > MAX_CAPTION_TEXT_LENGTH || !/-->/m.test(text)) {
-      sendResponse({ success: false });
+      sendResponse({ success: false, reason: 'type' });
       return;
     }
     sendResponse({ success: true, text });
-  } catch {
-    sendResponse({ success: false });
+  } catch (error) {
+    const name = (error as { name?: string }).name;
+    const reason = name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'http';
+    sendResponse({ success: false, reason });
   }
 }
 
@@ -96,7 +98,6 @@ type TranslatePayload = {
   aroundTime?: number;
   lectureId?: string;
   requestId?: number;
-  priority?: 'live' | 'rest';
   sourceLang?: string;
   targetLang?: string;
   sourceFingerprint?: string;
@@ -158,6 +159,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'FETCH_CAPTION_VTT') {
     void handleCaptionFetch(message.url, sender, sendResponse);
     return true;
+  }
+
+  if (message.type === 'CANCEL_TRANSLATE') {
+    if (typeof sender.tab?.id === 'number') detachTabFromTranslationJob(sender.tab.id);
+    sendResponse({ ok: true });
+    return;
   }
 
   if (message.type === 'TRANSLATE_CUES') {
@@ -237,7 +244,6 @@ async function handleTranslateRequest(
     aroundTime?: number;
     lectureId?: string;
     requestId?: number;
-    priority?: 'live' | 'rest';
     sourceLang?: string;
     targetLang?: string;
     sourceFingerprint?: string;

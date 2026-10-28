@@ -8,6 +8,7 @@ import { applySettingsCache, extensionAlive, getPageSettings, isStaleExtensionEr
 import { consumePendingSeek, setPendingSeek } from '../services/db';
 import { ExtensionSettings } from '../types';
 import { applyVideoDock, clearVideoDock, watchVideoDock } from './overlay/videoDock';
+import { pushDiag } from '../services/diag';
 
 console.log('[Duetto] Content script initialized on Udemy.');
 
@@ -27,6 +28,7 @@ let attaching = false;
 let checkTimer: ReturnType<typeof setTimeout> | null = null;
 let staleStopped = false;
 let observedRoot: Node | null = null;
+let observedSubtree = false;
 let appliedPageSettings: ExtensionSettings | null = null;
 
 function showStaleExtensionBanner(): void {
@@ -114,7 +116,10 @@ function applyLiveSettings(settings: ExtensionSettings) {
   if (typeof page.playbackSpeed === 'number') {
     playerHook.setSpeed(page.playbackSpeed);
   }
-  playerHook.initSilenceDetection(!!page.silenceSkipEnabled, page.silenceThreshold);
+  const silenceOk = playerHook.initSilenceDetection(!!page.silenceSkipEnabled, page.silenceThreshold);
+  if (page.silenceSkipEnabled && !silenceOk) {
+    pushDiag('Sessizlik atlama bu videoda captureStream açamadı.');
+  }
 }
 
 function teardownPlayer() {
@@ -252,12 +257,13 @@ function bindVideoListeners(video: HTMLVideoElement): void {
 }
 
 function observePlayer() {
-  const arm = (root: Node) => {
-    if (observedRoot === root) return;
+  const arm = (root: Node, subtree: boolean) => {
+    if (observedRoot === root && observedSubtree === subtree) return;
     playerObserver?.disconnect();
     playerObserver = new MutationObserver(schedule);
-    playerObserver.observe(root, { childList: true, subtree: true });
+    playerObserver.observe(root, { childList: true, subtree });
     observedRoot = root;
+    observedSubtree = subtree;
   };
 
   const runCheck = () => {
@@ -265,12 +271,12 @@ function observePlayer() {
     if (attaching) return;
     const video = playerHook.findVideoElement();
     if (!video) {
-      arm(document.body);
+      arm(document.body, false);
       return;
     }
     const container = findContainer(video);
     if (!container) {
-      arm(document.body);
+      arm(document.body, false);
       return;
     }
 
@@ -282,7 +288,7 @@ function observePlayer() {
     if (!isInitialized || hostGone || videoChanged || lectureChanged) {
       setupPlayerInstance(video, container);
     }
-    arm(container);
+    arm(container, true);
   };
 
   const schedule = () => {

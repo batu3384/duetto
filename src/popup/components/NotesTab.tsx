@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Download, Search, Trash2 } from 'lucide-react';
 import { CourseTranscript, LectureNote, SubtitleCue } from '../../types';
 import { deleteNote, getNotes, notesToMarkdown } from '../../services/notes';
+import { getWords, wordsToCsv, type SavedWord } from '../../services/words';
 import { listTranscripts } from '../../services/db';
 import { sendToUdemyTab } from '../sendToTab';
 
@@ -15,11 +16,13 @@ function fmtTime(t: number): string {
 
 export const NotesTab: React.FC = () => {
   const [notes, setNotes] = useState<LectureNote[]>([]);
+  const [words, setWords] = useState<SavedWord[]>([]);
   const [transcripts, setTranscripts] = useState<CourseTranscript[]>([]);
   const [query, setQuery] = useState('');
 
   useEffect(() => {
     getNotes().then(setNotes);
+    getWords().then(setWords);
     listTranscripts().then((stored) => {
       setTranscripts(stored);
       sendToUdemyTab({ type: 'GET_CUES' }, (res) => {
@@ -67,6 +70,39 @@ export const NotesTab: React.FC = () => {
 
   return (
     <div className="space-y-3">
+      <div className="p-3 bg-surface rounded-xl border border-line space-y-2">
+        <div className="flex items-center justify-between">
+          <div className="text-xs font-semibold text-ink">Kelimeler</div>
+          <button
+            type="button"
+            onClick={() => {
+              const blob = new Blob([wordsToCsv(words)], { type: 'text/csv;charset=utf-8' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = 'duetto-kelimeler.csv';
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
+            disabled={!words.length}
+            className="min-h-8 px-2 text-[11px] rounded-lg border border-line bg-inset disabled:opacity-40 focus-visible:ring-2 focus-visible:ring-brand-ring"
+          >
+            CSV
+          </button>
+        </div>
+        <p className="text-[11px] text-mute">Altyazıda kelimeye tıklayınca kaydolur. Hover kaydetmez.</p>
+        {words.length === 0 ? (
+          <p className="text-[11px] text-faint">Henüz kelime yok.</p>
+        ) : (
+          <ul className="max-h-24 overflow-y-auto space-y-1 text-xs">
+            {words.slice(0, 8).map((word) => (
+              <li key={word.id} className="text-ink">
+                {word.word} <span className="text-mute">→ {word.translation}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
       <div className="p-3 bg-surface rounded-xl border border-line space-y-2">
         <label htmlFor="tx-search" className="text-xs font-semibold text-ink">
           Transkript ara

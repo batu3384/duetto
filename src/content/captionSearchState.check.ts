@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { cacheMatchesCaptionSource, formatSourceStatus, shouldRetryCaptionSearch, shouldKeepLectureCues, acceptNativeCaption, clipCueText, nextRestCues } from './captionSearchState.ts';
+import { cacheMatchesCaptionSource, formatSourceStatus, shouldRetryCaptionSearch, shouldKeepLectureCues, acceptNativeCaption, clipCueText, nextRestCues, shouldChainRest, shouldRetryLateTranslation, captionFailureMessage } from './captionSearchState.ts';
 
 assert(formatSourceStatus('Kaynak yok', 'English', false) === 'Kaynak yok', 'error wins');
 assert(formatSourceStatus(null, 'English', true) === 'English', 'label beats loading');
@@ -54,5 +54,13 @@ const many = Array.from({ length: 16 }, (_, i) => ({
 }));
 const rest = nextRestCues(many, 0);
 assert(rest.map((cue) => cue.id).join(',') === 'c12,c13,c14,c15', 'rest starts after the live window');
+
+assert(shouldChainRest(false, 0) === false, 'screen-only does not chain rest');
+assert(shouldChainRest(true, 0) === true, 'fill starts rest');
+assert(shouldChainRest(true, 8) === false, 'fill stops at the cap');
+assert(shouldRetryLateTranslation(false) === true, 'first late response may retry once');
+assert(shouldRetryLateTranslation(true) === false, 'second late response does not retry');
+assert(captionFailureMessage('timeout').includes('zaman aşımı'), 'timeout reason');
+assert(captionFailureMessage(null).includes('Kaynak altyazı'), 'generic miss');
 
 console.log('captionSearchState check passed');

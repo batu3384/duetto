@@ -8,6 +8,7 @@ import { applyVideoDock } from './videoDock';
 import { captureCurrentNote } from '../captureNote';
 import { subtitleManager } from '../subtitleManager';
 import { formatSourceStatus } from '../captionSearchState';
+import { addWord } from '../../services/words';
 
 const SPEED_STEPS = [0.75, 1, 1.25, 1.5, 1.75, 2];
 
@@ -326,11 +327,11 @@ export class UIRenderer {
       const toTarget = el.getAttribute('data-to-target') !== '0';
       if (!word) return;
 
-      const open = () => {
+      const open = (persist: boolean) => {
         if (this.hideTimer) clearTimeout(this.hideTimer);
         this.holdPauseIfNeeded();
         this.hoverTimer = setTimeout(() => {
-          this.showWordHoverTooltip(word, rawWord, el, toTarget);
+          this.showWordHoverTooltip(word, rawWord, el, toTarget, persist);
         }, 80);
       };
       const close = () => {
@@ -341,19 +342,19 @@ export class UIRenderer {
         }, 180);
       };
 
-      el.addEventListener('mouseenter', open);
+      el.addEventListener('mouseenter', () => open(false));
       el.addEventListener('mouseleave', close);
       el.addEventListener('click', (e) => {
         e.stopPropagation();
         this.holdPauseIfNeeded();
-        this.showWordHoverTooltip(word, rawWord, el, toTarget);
+        this.showWordHoverTooltip(word, rawWord, el, toTarget, true);
       });
       el.addEventListener('dblclick', (e) => e.stopPropagation());
       el.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           this.holdPauseIfNeeded();
-          this.showWordHoverTooltip(word, rawWord, el, toTarget);
+          this.showWordHoverTooltip(word, rawWord, el, toTarget, true);
         }
         if (e.key === 'Escape') {
           this.hideWordTooltip();
@@ -394,7 +395,8 @@ export class UIRenderer {
     cleanWord: string,
     displayWord: string,
     element: HTMLElement,
-    toTarget: boolean
+    toTarget: boolean,
+    persist: boolean
   ): Promise<void> {
     const tooltip = shadowOverlay.getWordTooltipContainer();
     if (!tooltip) return;
@@ -441,6 +443,7 @@ export class UIRenderer {
       `;
       tooltip.classList.add('visible');
       place();
+      if (persist) this.rememberWord(cleanWord, cached.trans);
       return;
     }
 
@@ -460,6 +463,7 @@ export class UIRenderer {
         <div class="tooltip-trans">${escapeHtml(trans)}</div>
       `;
       place();
+      if (persist) this.rememberWord(cleanWord, trans);
     } catch {
       if (gen !== this.tooltipGen) return;
       bodyEl.innerHTML = `
@@ -468,6 +472,18 @@ export class UIRenderer {
       `;
       place();
     }
+  }
+
+  private rememberWord(word: string, translation: string): void {
+    const meta = subtitleManager.getMetadata();
+    void addWord({
+      id: `${Date.now()}-${word}`,
+      word,
+      translation,
+      lectureTitle: meta.lectureTitle,
+      time: playerHook.getCurrentTime(),
+      createdAt: Date.now(),
+    }).then(() => shadowOverlay.showToast('Kelime kaydedildi'));
   }
 
   private fetchPhrase(word: string, tl: string): Promise<string> {

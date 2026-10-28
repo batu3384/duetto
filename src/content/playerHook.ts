@@ -160,7 +160,7 @@ export class PlayerHook {
     }
   }
 
-  public initSilenceDetection(enabled: boolean, thresholdDb: number = -45): void {
+  public initSilenceDetection(enabled: boolean, thresholdDb: number = -45): boolean {
     this.silenceThreshold = thresholdDb;
     this.stopSilenceLoop();
 
@@ -171,22 +171,24 @@ export class PlayerHook {
       }
       this.isSilenceSkipping = false;
       this.releaseSilenceTap();
-      return;
+      return true;
     }
 
     const video = this.findVideoElement();
-    if (!video) return;
+    if (!video) return true;
 
     try {
       if (!this.attachSilenceStream(video)) {
         this.stopSilenceLoop();
         console.warn('[Duetto] Sessizlik atlama bu videoda captureStream açamadı.');
-        return;
+        return false;
       }
       if (this.audioCtx?.state === 'suspended') void this.audioCtx.resume().catch(() => {});
       this.startSilenceLoop();
+      return true;
     } catch (e) {
       console.warn('[Duetto] WebAudio silence detection attach error:', e);
+      return false;
     }
   }
 

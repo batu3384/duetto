@@ -107,6 +107,21 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
           Anahtar bu cihazda, uzantı deposunda kalır. Udemy sayfasına ve senkronize hesaba gitmez. Sayfa yenilemek silmez.
         </p>
 
+        <label className="flex items-start gap-2 text-xs text-ink">
+          <input
+            type="checkbox"
+            className="mt-0.5"
+            checked={settings.fillLectureTranslation === true}
+            onChange={(e) => onChange({ fillLectureTranslation: e.target.checked })}
+          />
+          <span>
+            Dersin kalanını da çevir
+            <span className="block text-[11px] text-mute mt-0.5">
+              Kapalıyken yalnız ekrandaki satırlar gider. Açıkken altyazının devamı da Gemini’ye gider (en fazla 8 istek).
+            </span>
+          </span>
+        </label>
+
         <div className="space-y-1">
           <label htmlFor="gemini-model" className="text-xs text-mute">
             Model
@@ -211,7 +226,7 @@ export const AiTab: React.FC<Props> = ({ settings, onChange }) => {
                       <span className="text-ink">{testResult.phrase.translation}</span>
                     </div>
                   )}
-                  <div className="text-[11px] text-ok-fg">Altyazı çevirisi bu ders için yeniden başladı.</div>
+                  <div className="text-[11px] text-ok-fg">Kelime çevirisi çalıştı. Ders altyazısı yenilenmek üzere gönderildi.</div>
                 </>
               ) : (
                 <div className="font-medium break-words">{testResult.error}</div>

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { ExtensionSettings } from '../../types';
-import { Tv, RotateCcw, FastForward, Rewind } from 'lucide-react';
+import { Tv, RotateCcw, FastForward, Rewind, ClipboardCopy } from 'lucide-react';
 import { sendToUdemyTab } from '../sendToTab';
+import { diagToText, getDiag } from '../../services/diag';
 
 interface Props {
   settings: ExtensionSettings;
@@ -15,6 +16,7 @@ const btnClass =
 
 export const PlayerTab: React.FC<Props> = ({ settings, onChange }) => {
   const [pipActive, setPipActive] = useState(false);
+  const [diagNote, setDiagNote] = useState('');
 
   const setSpeed = (val: number) => {
     onChange({ playbackSpeed: val });
@@ -141,6 +143,21 @@ export const PlayerTab: React.FC<Props> = ({ settings, onChange }) => {
           <div className="w-9 h-5 bg-line rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[6px] after:right-[18px] after:bg-ink after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-brand peer-focus-visible:ring-2 peer-focus-visible:ring-brand-ring" />
         </label>
       </div>
+
+      <button
+        type="button"
+        onClick={() => {
+          void getDiag().then(async (lines) => {
+            await navigator.clipboard.writeText(diagToText(lines));
+            setDiagNote(lines.length ? `${lines.length} satır kopyalandı` : 'Kayıt yok');
+          });
+        }}
+        className="w-full min-h-10 py-2 bg-inset hover:bg-lift text-ink text-xs font-semibold rounded-lg border border-line flex items-center justify-center gap-1.5 focus-visible:ring-2 focus-visible:ring-brand-ring"
+      >
+        <ClipboardCopy className="w-3.5 h-3.5 text-mute" aria-hidden />
+        Tanıyı kopyala
+      </button>
+      {diagNote && <p className="text-[11px] text-mute">{diagNote}</p>}
 
       <div className="p-2.5 bg-canvas rounded-xl border border-line space-y-1.5">
         <div className="text-[11px] font-mono text-mute">Kısayollar</div>

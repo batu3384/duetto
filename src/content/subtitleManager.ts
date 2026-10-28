@@ -26,7 +26,8 @@ import {
   waitForTrackCues,
 } from '../services/udemyCaptions';
 import { shadowOverlay } from './overlay/shadowRoot';
-import { formatSourceStatus, shouldRetryCaptionSearch, cacheMatchesCaptionSource, acceptNativeCaption, nextRestCues, clipCueText } from './captionSearchState';
+import { formatSourceStatus, shouldRetryCaptionSearch, cacheMatchesCaptionSource, acceptNativeCaption, nextRestCues, clipCueText, captionFailureMessage, asCaptionFail, shouldChainRest, shouldRetryLateTranslation, type CaptionFailReason } from './captionSearchState';
+import { pushDiag } from '../services/diag';
 import type { TranslationPatch } from '../services/translator/gemini';
 
 function isValidCaptionTrack(track: TextTrack): boolean {
@@ -60,7 +61,6 @@ function cacheLooksTranslated(cues: SubtitleCue[]): boolean {
   return cueTranslationCoverage(cues) >= 0.95;
 }
 
-const SOURCE_ERROR = 'Kaynak altyazı bulunamadı. Videoyu oynatın veya “Altyazıyı yenile” seçin.';
 const CAPTION_POLL_INTERVAL_MS = 1000;
 const CAPTION_POLL_ATTEMPTS = 12;
 const CAPTION_FETCH_TIMEOUT_MS = 8000;
@@ -68,6 +68,17 @@ const CAPTION_SEARCH_DEADLINE_MS = 12000;
 const MAX_CAPTION_TEXT_LENGTH = 8_000_000;
 const TRANSLATE_REQUEST_TIMEOUT_MS = 90000;
 const TRANSLATE_HANG_MS = 180000;
+
+let notedCaptionFail: CaptionFailReason | null = null;
+
+function noteCaptionFail(reason: CaptionFailReason | null): void {
+  notedCaptionFail = reason;
+}
+
+function fetchFailFromError(error: unknown): CaptionFailReason {
+  const name = (error as { name?: string }).name;
+  return name === 'TimeoutError' || name === 'AbortError' ? 'timeout' : 'http';
+}
 
 interface CaptionSource {
   track: TextTrack | null;
@@ -112,16 +123,22 @@ function fetchCaptionVttViaBackground(url: string): Promise<string | null> {
       window.clearTimeout(timeout);
       resolve(text);
     };
-    const timeout = window.setTimeout(() => finish(null), CAPTION_FETCH_TIMEOUT_MS);
+    const timeout = window.setTimeout(() => {
+      noteCaptionFail('timeout');
+      finish(null);
+    }, CAPTION_FETCH_TIMEOUT_MS);
     try {
       chrome.runtime.sendMessage({ type: 'FETCH_CAPTION_VTT', url }, (response) => {
         if (chrome.runtime.lastError || !response?.success || typeof response.text !== 'string') {
+          noteCaptionFail(asCaptionFail(response?.reason) || 'http');
           finish(null);
           return;
         }
+        noteCaptionFail(null);
         finish(response.text);
       });
-    } catch {
+    } catch (error) {
+      noteCaptionFail(fetchFailFromError(error));
       finish(null);
     }
   });
@@ -137,12 +154,29 @@ async function fetchCaptionText(url: string): Promise<string | null> {
     });
     if (response.ok) {
       const text = await response.text();
-      if (text.length <= MAX_CAPTION_TEXT_LENGTH && /-->/m.test(text)) return text;
+      if (text.length <= MAX_CAPTION_TEXT_LENGTH && /-->/m.test(text)) {
+        noteCaptionFail(null);
+        return text;
+      }
+      noteCaptionFail('type');
+    } else {
+      noteCaptionFail('http');
     }
   } catch (error) {
+    noteCaptionFail(fetchFailFromError(error));
     console.warn('[Duetto] Failed to fetch track src:', error);
   }
   return fetchCaptionVttViaBackground(url);
+}
+
+function cancelSwTranslate(): void {
+  try {
+    chrome.runtime.sendMessage({ type: 'CANCEL_TRANSLATE' }, () => {
+      void chrome.runtime.lastError;
+    });
+  } catch {
+    /* extension reloaded */
+  }
 }
 
 export class SubtitleManager {
@@ -157,6 +191,8 @@ export class SubtitleManager {
   private liveQueued: boolean = false;
   private swTranslatePending: boolean = false;
   private extractInFlight: boolean = false;
+  private restBatches = 0;
+  private lateRetryUsed = false;
   private liveTimer: ReturnType<typeof setTimeout> | null = null;
   private translationHint: string | null = null;
   private translateReq: number = 0;
@@ -225,6 +261,13 @@ export class SubtitleManager {
   private setTranslationHint(msg: string | null): void {
     this.translationHint = msg;
     this.notifyCueChange(this.currentCue);
+  }
+
+  private markSourceMiss(): void {
+    const msg = captionFailureMessage(notedCaptionFail);
+    this.sourceError = msg;
+    this.setTranslationHint(msg);
+    pushDiag(msg);
   }
 
   private nativeCaptionRoot(video = this.activeVideo): ParentNode {
@@ -318,6 +361,10 @@ export class SubtitleManager {
     this.liveQueued = false;
     this.swTranslatePending = false;
     this.extractInFlight = false;
+    this.restBatches = 0;
+    this.lateRetryUsed = false;
+    noteCaptionFail(null);
+    cancelSwTranslate();
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
     this.translationHint = null;
@@ -352,6 +399,10 @@ export class SubtitleManager {
     this.liveQueued = false;
     this.swTranslatePending = false;
     this.extractInFlight = false;
+    this.restBatches = 0;
+    this.lateRetryUsed = false;
+    noteCaptionFail(null);
+    cancelSwTranslate();
     if (this.liveTimer) clearTimeout(this.liveTimer);
     this.liveTimer = null;
     if (this.searchDeadlineTimer) clearTimeout(this.searchDeadlineTimer);
@@ -428,15 +479,13 @@ export class SubtitleManager {
             return;
           }
           this.sourceLoading = false;
-          this.sourceError = SOURCE_ERROR;
-          this.setTranslationHint(SOURCE_ERROR);
+          this.markSourceMiss();
         })
         .catch(() => {
           if (this.translateReq !== req || this.cues.length) return;
           if (this.extractInFlight || this.trackPollInterval) return;
           this.sourceLoading = false;
-          this.sourceError = SOURCE_ERROR;
-          this.setTranslationHint(SOURCE_ERROR);
+          this.markSourceMiss();
         });
     }, CAPTION_SEARCH_DEADLINE_MS);
 
@@ -496,6 +545,7 @@ export class SubtitleManager {
   }
 
   private applyLoadedCues(cues: SubtitleCue[], video: HTMLVideoElement): void {
+    noteCaptionFail(null);
     this.cues = cues;
     this.sourceLoading = false;
     this.sourceError = null;
@@ -717,8 +767,7 @@ export class SubtitleManager {
           if (interval) clearInterval(interval);
           if (this.trackPollInterval === interval) this.trackPollInterval = null;
           this.sourceLoading = false;
-          this.sourceError = SOURCE_ERROR;
-          this.setTranslationHint(SOURCE_ERROR);
+          this.markSourceMiss();
         }
       } finally {
         pollBusy = false;
@@ -841,7 +890,7 @@ export class SubtitleManager {
     const translatedCount = () => this.cues.filter((cue) => ids.has(cue.id) && cue.translation?.trim()).length;
     const before = translatedCount();
 
-    const response = await this.translateBatch(windowCues, aroundTime, settings, 'live');
+    const response = await this.translateBatch(windowCues, aroundTime, settings);
     if (requestId !== this.translateReq || lectureId !== this.currentLectureId) return;
     if (!response) return;
     this.mergeTranslated(response, { lectureId, requestId });
@@ -856,6 +905,7 @@ export class SubtitleManager {
       this.surfaceCurrentGap(response.error);
       return;
     }
+    if (response.success) this.lateRetryUsed = false;
     void this.ensureRest(aroundTime);
   }
 
@@ -864,6 +914,7 @@ export class SubtitleManager {
     if (this.cues.length === 0) return;
     const settings = await getPageSettings();
     if (!settings.dualSubtitlesEnabled || !needsTranslation(settings) || !settings.geminiKeyConfigured) return;
+    if (!shouldChainRest(settings.fillLectureTranslation === true, this.restBatches)) return;
     const now = this.activeVideo?.currentTime ?? aroundTime;
     const liveMissing = liveWindowCues(this.cues, now).some((cue) => !cue.translation?.trim());
     if (liveMissing) {
@@ -877,7 +928,7 @@ export class SubtitleManager {
     const ids = new Set(batch.map((cue) => cue.id));
     const translatedCount = () => this.cues.filter((cue) => ids.has(cue.id) && cue.translation?.trim()).length;
     const before = translatedCount();
-    const response = await this.translateBatch(batch, now, settings, 'rest');
+    const response = await this.translateBatch(batch, now, settings);
     if (requestId !== this.translateReq || lectureId !== this.currentLectureId || !response) return;
     this.mergeTranslated(response, { lectureId, requestId });
     if (response.aborted) {
@@ -891,11 +942,14 @@ export class SubtitleManager {
       this.surfaceCurrentGap(response.error);
       return;
     }
+    if (response.success) this.lateRetryUsed = false;
+    this.restBatches += 1;
     if (this.liveQueued && !this.swTranslatePending) {
       this.liveQueued = false;
       void this.ensureLive(this.activeVideo?.currentTime ?? now);
       return;
     }
+    if (!shouldChainRest(true, this.restBatches)) return;
     void this.ensureRest(this.activeVideo?.currentTime ?? now);
   }
 
@@ -905,13 +959,13 @@ export class SubtitleManager {
       ? userTranslationError(error)
       : 'Çeviri bu satırda tamamlanamadı. Gemini sekmesinden bağlantıyı test edin.';
     this.setTranslationHint(msg);
+    pushDiag(msg);
   }
 
   private async translateBatch(
     cues: SubtitleCue[],
     aroundTime: number,
-    settings: ExtensionSettings,
-    priority: 'live' | 'rest'
+    settings: ExtensionSettings
   ): Promise<{ success: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean } | null> {
     const requestId = this.translateReq;
     const lectureId = this.currentLectureId;
@@ -924,8 +978,7 @@ export class SubtitleManager {
         aroundTime,
         transcriptTranslationFingerprint(settings),
         settings.sourceLang || 'en',
-        settings.targetLang || 'tr',
-        priority
+        settings.targetLang || 'tr'
       );
       if (requestId !== this.translateReq || lectureId !== this.currentLectureId) return null;
       return response;
@@ -944,8 +997,7 @@ export class SubtitleManager {
     aroundTime: number,
     translationFingerprint: string,
     sourceLang: string,
-    targetLang: string,
-    priority: 'live' | 'rest'
+    targetLang: string
   ): Promise<{ success: boolean; cues?: SubtitleCue[]; error?: string; aborted?: boolean }> {
     const lectureId = this.currentLectureId;
     const requestId = this.translateReq;
@@ -967,8 +1019,16 @@ export class SubtitleManager {
       };
       const timeout = window.setTimeout(() => {
         this.swTranslatePending = false;
-        this.liveQueued = true;
-        finish({ success: true, aborted: true });
+        if (shouldRetryLateTranslation(this.lateRetryUsed)) {
+          this.lateRetryUsed = true;
+          this.liveQueued = true;
+          finish({ success: true, aborted: true });
+          return;
+        }
+        finish({
+          success: false,
+          error: 'Çeviri gecikti. Bir süre sonra tekrar dene.',
+        });
       }, TRANSLATE_REQUEST_TIMEOUT_MS);
       const hang = window.setTimeout(() => {
         this.swTranslatePending = false;
@@ -986,7 +1046,6 @@ export class SubtitleManager {
               aroundTime,
               lectureId,
               requestId,
-              priority,
               sourceLang,
               targetLang,
               sourceFingerprint: this.sourceFingerprint,

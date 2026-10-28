@@ -81,6 +81,8 @@ export interface ExtensionSettings {
   silenceSkipEnabled: boolean;
   silenceThreshold: number;
   shortcutsEnabled: boolean;
+  /** Off: only the on-screen window is sent to Gemini. */
+  fillLectureTranslation: boolean;
   geminiApiKey: string;
   /** Runtime only — content script knows key exists without reading it. */
   geminiKeyConfigured?: boolean;
@@ -147,7 +149,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
     videoFit: 'cover',
     position: 'bottom',
     offsetY: 42,
-    pauseOnHover: true,
+    pauseOnHover: false,
     termHighlight: true,
     layoutMode: 'dual',
     order: 'source_top',
@@ -158,6 +160,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   silenceSkipEnabled: false,
   silenceThreshold: -40,
   shortcutsEnabled: true,
+  fillLectureTranslation: false,
   geminiModel: 'gemini-3.5-flash-lite',
   geminiApiKey: '',
   geminiTemperature: 0.2,
